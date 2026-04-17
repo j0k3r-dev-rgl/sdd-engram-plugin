@@ -323,10 +323,10 @@ export async function activateProfileFile(api: any, profilePath: string, profile
     const profileData = readProfileData(profilePath);
     const profileModels = profileData.models || {};
 
-    if (Object.keys(profileModels).length === 0) {
+    if (Object.keys(profileModels).length === 0 && Object.keys(profileData.fallback || {}).length === 0) {
       api.ui.toast({
         title: "Activation Failed",
-        message: "The profile contains no SDD models to apply",
+        message: "The profile contains no SDD models or fallbacks to apply",
         variant: "error",
       });
       return;
@@ -344,12 +344,13 @@ export async function activateProfileFile(api: any, profilePath: string, profile
       currentConfig = globalConfigResult?.data || {};
     }
 
-    const fallbackValidationErrors = validateProfileFallbackMapping(currentConfig, profileData.fallback || {});
+    const nextConfigWithModels = applyProfileModelsToConfig(currentConfig, profileData.models || {});
+    const fallbackValidationErrors = validateProfileFallbackMapping(nextConfigWithModels, profileData.fallback || {});
     if (fallbackValidationErrors.length > 0) {
       throw new Error(fallbackValidationErrors.join(" | "));
     }
 
-    const nextConfig = applyProfileDataToConfig(currentConfig, profileData);
+    const nextConfig = syncSddFallbackAgents(nextConfigWithModels, profileData.fallback || {});
 
     const result = await api.client.global.config.update({
       config: nextConfig,
