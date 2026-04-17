@@ -1,6 +1,6 @@
 {
   "name": "opencode-sdd-engram-manage",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Interactive SDD model selection and profile management for opencode",
   "type": "module",
   "main": "index.tsx",
