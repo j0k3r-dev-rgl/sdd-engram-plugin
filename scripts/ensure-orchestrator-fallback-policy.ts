@@ -12,11 +12,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const MARKER_START = "<!-- gentle-ai:sdd-fallback-policy -->";
-const MARKER_END = "<!-- /gentle-ai:sdd-fallback-policy -->";
+export const MARKER_START = "<!-- gentle-ai:sdd-fallback-policy -->";
+export const MARKER_END = "<!-- /gentle-ai:sdd-fallback-policy -->";
 
-const FALLBACK_POLICY_BLOCK = [
+export const FALLBACK_POLICY_BLOCK = [
   MARKER_START,
   "### Sub-Agent Fallback Policy (MANDATORY)",
   "",
@@ -72,17 +73,17 @@ function parseArgs(argv: string[]): CliArgs {
   return args;
 }
 
-function resolveDefaultConfigPath(): string {
+export function resolveDefaultConfigPath(): string {
   const home = os.homedir();
   const xdg = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
   return path.join(xdg, "opencode", "opencode.json");
 }
 
-function isFilePromptReference(prompt: string): boolean {
+export function isFilePromptReference(prompt: string): boolean {
   return /^\{file:.+\}$/.test(prompt.trim());
 }
 
-function resolvePromptFilePath(prompt: string, configPath: string): string {
+export function resolvePromptFilePath(prompt: string, configPath: string): string {
   const trimmed = prompt.trim();
   const rawPath = trimmed.slice("{file:".length, -1).trim();
   if (!rawPath) throw new Error("Invalid {file:...} prompt reference: empty path");
@@ -90,7 +91,7 @@ function resolvePromptFilePath(prompt: string, configPath: string): string {
   return path.resolve(path.dirname(configPath), rawPath);
 }
 
-function upsertFallbackPolicy(content: string): { updated: string; changed: boolean } {
+export function upsertFallbackPolicy(content: string): { updated: string; changed: boolean } {
   const hasStart = content.includes(MARKER_START);
   const hasEnd = content.includes(MARKER_END);
 
@@ -177,9 +178,13 @@ function main(): void {
   console.log(`[updated] Injected fallback policy into inline prompt in: ${args.configPath}`);
 }
 
-try {
-  main();
-} catch (error: any) {
-  console.error(`[error] ${error?.message || String(error)}`);
-  process.exit(1);
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1]);
+
+if (isMain) {
+  try {
+    main();
+  } catch (error: any) {
+    console.error(`[error] ${error?.message || String(error)}`);
+    process.exit(1);
+  }
 }

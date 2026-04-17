@@ -10,14 +10,20 @@
     }
   },
   "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:fallback": "node ./scripts/test-fallback.ts",
     "examples": "node ./scripts/run-examples.ts",
     "orchestrator:fallback:check": "node ./scripts/ensure-orchestrator-fallback-policy.ts --check",
     "orchestrator:fallback:apply": "node ./scripts/ensure-orchestrator-fallback-policy.ts"
   },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  },
   "peerDependencies": {
-    "@opencode-ai/plugin": "*",
-    "@opentui/core": "*",
-    "@opentui/solid": "*",
+    "@opencode-ai/plugin": "^1.4.9",
+    "@opentui/core": "^0.1.100",
+    "@opentui/solid": "^0.1.100",
     "solid-js": "*"
   },
   "engines": {

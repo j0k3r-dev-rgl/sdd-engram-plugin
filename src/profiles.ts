@@ -303,7 +303,7 @@ function applyProfileModelsToConfig(currentConfig: any, profileModels: ProfileMo
 /**
  * Applies full profile data to config (primary models + fallback reconciliation)
  */
-function applyProfileDataToConfig(currentConfig: any, profile: ProfileData): any {
+export function applyProfileDataToConfig(currentConfig: any, profile: ProfileData): any {
   const withPrimaryModels = applyProfileModelsToConfig(currentConfig, profile.models || {});
   const fallbackModels = profile.fallback || {};
   return syncSddFallbackAgents(withPrimaryModels, fallbackModels);
