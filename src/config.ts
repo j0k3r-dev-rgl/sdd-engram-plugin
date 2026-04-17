@@ -1,4 +1,4 @@
-/** @jsxImportSource @opentui/solid */
+/** @jsxImportSource solid-js */
 // @ts-nocheck
 
 /**
