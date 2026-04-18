@@ -24,5 +24,12 @@ export default defineConfig({
     'node:child_process',
     'node:os'
   ],
-  esbuildPlugins: [solidPlugin()],
+  esbuildPlugins: [
+    solidPlugin({
+      solid: {
+        moduleName: '@opentui/solid',
+        generate: 'universal',
+      },
+    }),
+  ],
 });
