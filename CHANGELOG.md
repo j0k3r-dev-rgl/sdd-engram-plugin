@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.1.3...v1.1.4) (2026-04-18)
+
+
+### Bug Fixes
+
+* target @opentui/solid runtime in compiled bundle ([58a90d9](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/58a90d98fd34c0b2623137623ec85c9e7871aaa9)), closes [#8](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/8)
+
 ## [1.1.3](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.1.2...v1.1.3) (2026-04-18)
 
 
