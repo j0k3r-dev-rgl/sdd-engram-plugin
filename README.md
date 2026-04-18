@@ -91,6 +91,54 @@ Open the plugin with:
 
 ---
 
+## Screenshots
+
+This is what users will see after installing the plugin:
+
+### Main entry and profile management
+
+<p align="center">
+  <img src="docs/images/captura1.png" alt="Main plugin menu" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura2.png" alt="Profile management screen" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura3.png" alt="Profile detail screen" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura4.png" alt="Agent model selection" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura5.png" alt="Fallback model configuration" width="720" />
+</p>
+
+### Engram memory browser
+
+<p align="center">
+  <img src="docs/images/captura6.png" alt="Project memories access" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura6-memory.png" alt="Project memories list" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/images/captura6-memory-detail.png" alt="Memory detail view" width="720" />
+</p>
+
+### Profile JSON preview
+
+<p align="center">
+  <img src="docs/images/captura7-json.png" alt="Profile JSON preview" width="720" />
+</p>
+
+---
+
 ## Orchestrator Fallback Policy Script
 
 This repo includes a script to ensure the `sdd-orchestrator` prompt contains the fallback policy block required for `sdd-*-fallback` agents to work correctly when a primary sub-agent fails.
