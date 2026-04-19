@@ -248,12 +248,18 @@ export function showCreateProfile(api: any) {
 
         try {
           writeProfileModels(profilePath, {});
-          api.ui.toast({
-            title: "Success",
-            message: `Profile '${finalName}' created successfully`,
-            variant: "success",
-          });
-          showProfileDetailFn(api, { title: finalName, value: fileName });
+          
+          // Defer both navigation and toast to next tick to ensure the current 
+          // DialogPrompt has fully finished its state cycle, avoiding races 
+          // that could prevent the new detail view from appearing reliably.
+          setTimeout(() => {
+            showProfileDetailFn(api, { title: finalName, value: fileName });
+            api.ui.toast({
+              title: "Success",
+              message: `Profile '${finalName}' created successfully`,
+              variant: "success",
+            });
+          }, 0);
         } catch (e: any) {
           api.ui.toast({
             title: "Error",
