@@ -1,3 +1,10 @@
+## [1.1.6](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.1.5...v1.1.6) (2026-04-19)
+
+
+### Bug Fixes
+
+* defer profile edit view after creation ([b72a897](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/b72a897415db42dfcb0886f48239480f002601b5)), closes [#10](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/10)
+
 ## [1.1.5](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.1.4...v1.1.5) (2026-04-19)
 
 
