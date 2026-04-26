@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import type { ProfileData } from './types';
 import { BULK_ASSIGNMENT_MODE, BULK_ASSIGNMENT_TARGET, PROFILE_VERSION_SOURCE } from './types';
-import { 
+import { formatProfileVersionPreviewLines } from './dialogs';
+import {
   extractSddAgentModels, 
   extractSddFallbackModels, 
   readProfileModels, 
   readProfileFallbackModels, 
+  sanitizeProfileName,
   syncSddFallbackAgents, 
   validateProfileFallbackMapping,
   isSddProfile,
@@ -20,7 +22,9 @@ import {
   readProfileVersion,
   restoreProfileVersion,
   updateProfileWithBulkPhaseAssignment,
-  updateProfilePhaseModel
+  updateProfilePhaseModel,
+  deleteProfileFile,
+  renameProfileFile
 } from './profiles';
 
 vi.mock('node:fs');
@@ -45,6 +49,20 @@ describe('profiles logic', () => {
       expect(isSddProfile('profile.json')).toBe(true);
       expect(isSddProfile('readme.md')).toBe(false);
       expect(isSddProfile('config')).toBe(false);
+    });
+  });
+
+  describe('sanitizeProfileName', () => {
+    it('accepts safe names and strips a trailing json extension', () => {
+      expect(sanitizeProfileName(' team-default.json ')).toBe('team-default');
+      expect(sanitizeProfileName('team default.v2')).toBe('team default.v2');
+    });
+
+    it('rejects empty, traversal, separators, and unsafe characters', () => {
+      expect(() => sanitizeProfileName('   ')).toThrow('Profile name cannot be empty');
+      expect(() => sanitizeProfileName('../team')).toThrow('unsafe characters');
+      expect(() => sanitizeProfileName('team/nested')).toThrow('unsafe characters');
+      expect(() => sanitizeProfileName('team*prod')).toThrow('unsafe characters');
     });
   });
 
@@ -150,6 +168,48 @@ describe('profiles logic', () => {
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         '/mock/profiles/compatible.json',
         JSON.stringify(profileData, null, 2)
+      );
+    });
+
+    it('writes canonical profile payloads without stale legacy or config-shaped fields', () => {
+      writeProfileData('/mock/profiles/compatible.json', {
+        models: { 'sdd-init': ' gpt-4 ', 'not-sdd': 'ignore-me' } as any,
+        fallback: { 'sdd-init': ' gpt-3.5 ', 'invalid': 'ignore-me' } as any,
+        description: 'team defaults',
+        agent: { 'sdd-init': { model: 'stale/model' } },
+        'sdd-init': 'legacy/model',
+      } as any);
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        '/mock/profiles/compatible.json',
+        JSON.stringify({
+          description: 'team defaults',
+          models: { 'sdd-init': 'gpt-4' },
+          fallback: { 'sdd-init': 'gpt-3.5' }
+        }, null, 2)
+      );
+    });
+
+    it('omits empty fallback maps when reading and writing full profile data', () => {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+        models: { 'sdd-init': 'gpt-4' },
+        fallback: {},
+        description: 'team defaults'
+      }));
+
+      const profileData = readProfileData('/mock/profiles/compatible.json');
+      writeProfileData('/mock/profiles/compatible.json', profileData);
+
+      expect(profileData).toEqual({
+        models: { 'sdd-init': 'gpt-4' },
+        description: 'team defaults'
+      });
+      expect(fs.writeFileSync).toHaveBeenLastCalledWith(
+        '/mock/profiles/compatible.json',
+        JSON.stringify({
+          description: 'team defaults',
+          models: { 'sdd-init': 'gpt-4' }
+        }, null, 2)
       );
     });
   });
@@ -613,7 +673,100 @@ describe('profiles logic', () => {
       expect(() => readProfileVersion('../evil.json')).toThrow('Invalid profile version id');
     });
 
-    it('restores only the selected profile from version raw content', () => {
+    it('skips corrupt version files instead of failing the entire list', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([
+        '2026-04-26T10-00-00-000Z-good.json',
+        '2026-04-26T11-00-00-000Z-bad.json',
+      ] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('bad.json')) {
+          return '{invalid json';
+        }
+
+        return JSON.stringify({
+          version: 1,
+          id: 'team.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'team.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old"}}',
+          preview: { models: { 'sdd-init': 'old' }, fallback: {} }
+        });
+      });
+
+      expect(listProfileVersions('team.json')).toEqual([
+        {
+          version: 1,
+          id: 'team.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'team.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          source: PROFILE_VERSION_SOURCE.BULK,
+          operation: {
+            source: PROFILE_VERSION_SOURCE.BULK,
+            target: BULK_ASSIGNMENT_TARGET.BOTH,
+            mode: BULK_ASSIGNMENT_MODE.FILL_ONLY,
+          },
+          operationSummary: 'Bulk fill both',
+          preview: { models: { 'sdd-init': 'old' }, fallback: {} }
+        }
+      ]);
+    });
+
+    it('rejects malformed parseable version payloads and skips them from lists', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([
+        '2026-04-26T10-00-00-000Z-good.json',
+        '2026-04-26T11-00-00-000Z-malformed.json',
+      ] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('malformed.json')) {
+          return JSON.stringify({
+            version: 1,
+            id: 'team.json/2026-04-26T11-00-00-000Z-malformed.json',
+            profileFile: 'team.json',
+            createdAt: null,
+            source: PROFILE_VERSION_SOURCE.BULK,
+            operation,
+            operationSummary: 'Bulk fill both',
+            beforeRaw: null,
+            preview: null,
+          });
+        }
+
+        return JSON.stringify({
+          version: 1,
+          id: 'team.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'team.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old"}}',
+          preview: { models: { 'sdd-init': 'old' }, fallback: {} }
+        });
+      });
+
+      expect(() => readProfileVersion('team.json/2026-04-26T11-00-00-000Z-malformed.json')).toThrow('Invalid profile version data');
+      expect(listProfileVersions('team.json')).toEqual([
+        {
+          version: 1,
+          id: 'team.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'team.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          source: PROFILE_VERSION_SOURCE.BULK,
+          operation: {
+            source: PROFILE_VERSION_SOURCE.BULK,
+            target: BULK_ASSIGNMENT_TARGET.BOTH,
+            mode: BULK_ASSIGNMENT_MODE.FILL_ONLY,
+          },
+          operationSummary: 'Bulk fill both',
+          preview: { models: { 'sdd-init': 'old' }, fallback: {} }
+        }
+      ]);
+    });
+
+    it('sanitizes preview maps for valid persisted versions so preview formatting stays safe', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
         version: 1,
@@ -622,15 +775,122 @@ describe('profiles logic', () => {
         createdAt: '2026-04-26T10:00:00.000Z',
         operation,
         operationSummary: 'Bulk fill both',
-        beforeRaw: '{"models":{"sdd-init":"old/model"}}',
-        preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        beforeRaw: '{"models":{"sdd-init":"old"}}',
+        preview: {
+          models: { 'sdd-init': 'old', 'sdd-apply': 42, random: 'ignored' },
+          fallback: { 'sdd-init': 'fallback', 'sdd-design': null, random: 'ignored' }
+        }
       }));
+
+      const version = readProfileVersion('team.json/2026-04-26T10-00-00-000Z-a.json');
+
+      expect(version.preview).toEqual({
+        models: { 'sdd-init': 'old' },
+        fallback: { 'sdd-init': 'fallback' }
+      });
+      expect(() => formatProfileVersionPreviewLines(version)).not.toThrow();
+    });
+
+    it('restores only the selected profile from version raw content after snapshotting the live profile', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath).includes('/profile-versions/team.json'));
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('/profile-versions/team.json/')) {
+          return JSON.stringify({
+            version: 1,
+            id: 'team.json/2026-04-26T10-00-00-000Z-a.json',
+            profileFile: 'team.json',
+            createdAt: '2026-04-26T10:00:00.000Z',
+            operation,
+            operationSummary: 'Bulk fill both',
+            beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+            preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+          });
+        }
+
+        return '{"models":{"sdd-init":"live/model"}}';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
 
       const restored = restoreProfileVersion('team.json', 'team.json/2026-04-26T10-00-00-000Z-a.json');
 
       expect(restored.profileFile).toBe('team.json');
-      expect(fs.writeFileSync).toHaveBeenCalledWith('/mock/profiles/team.json', '{"models":{"sdd-init":"old/model"}}');
+      expect(writes[0].filePath).toContain('/mock/config/profile-versions/team.json/');
+      expect(writes[0].content).toContain('Snapshot before restoring 2026-04-26T10-00-00-000Z-a.json');
+      expect(writes[0].content).toContain('live/model');
+      expect(writes[1]).toEqual({
+        filePath: '/mock/profiles/team.json',
+        content: '{"models":{"sdd-init":"old/model"}}'
+      });
       expect(() => restoreProfileVersion('other.json', 'team.json/2026-04-26T10-00-00-000Z-a.json')).toThrow('does not match selected profile');
+    });
+
+    it('restores a valid selected version even when the current live profile JSON is corrupt', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath).includes('/profile-versions/team.json'));
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('/profile-versions/team.json/')) {
+          return JSON.stringify({
+            version: 1,
+            id: 'team.json/2026-04-26T10-00-00-000Z-a.json',
+            profileFile: 'team.json',
+            createdAt: '2026-04-26T10:00:00.000Z',
+            operation,
+            operationSummary: 'Bulk fill both',
+            beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+            preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+          });
+        }
+
+        return '{invalid current profile';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      expect(() => restoreProfileVersion('team.json', 'team.json/2026-04-26T10-00-00-000Z-a.json')).not.toThrow();
+      expect(writes[0].filePath).toContain('/mock/config/profile-versions/team.json/');
+      expect(writes[0].content).toContain('"beforeRaw": "{invalid current profile"');
+      expect(writes[0].content).toContain('"preview": {\n    "models": {},\n    "fallback": {}\n  }');
+      expect(writes[1]).toEqual({
+        filePath: '/mock/profiles/team.json',
+        content: '{"models":{"sdd-init":"old/model"}}'
+      });
+    });
+
+    it('restores raw snapshot content even when beforeRaw is invalid JSON', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath).includes('/profile-versions/team.json'));
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('/profile-versions/team.json/')) {
+          return JSON.stringify({
+            version: 1,
+            id: 'team.json/2026-04-26T10-00-00-000Z-a.json',
+            profileFile: 'team.json',
+            createdAt: '2026-04-26T10:00:00.000Z',
+            operation,
+            operationSummary: 'Bulk fill both',
+            beforeRaw: '{invalid snapshot payload',
+            preview: { models: {}, fallback: {} }
+          });
+        }
+
+        return '{"models":{"sdd-init":"live/model"}}';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      expect(() => restoreProfileVersion('team.json', 'team.json/2026-04-26T10-00-00-000Z-a.json')).not.toThrow();
+      expect(writes[1]).toEqual({
+        filePath: '/mock/profiles/team.json',
+        content: '{invalid snapshot payload'
+      });
     });
 
     it('creates a version before mutating bulk write and skips versioning for no-op or validation failure', () => {
@@ -745,6 +1005,302 @@ describe('profiles logic', () => {
       expect(primaryNoOp.changed).toBe(false);
       expect(fallbackNoOp.changed).toBe(false);
       expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('renames matching profile version history with migrated snapshot metadata', () => {
+      const files: Record<string, string> = {
+        '/mock/profiles/old.json': '{"models":{"sdd-init":"live/model"}}',
+        '/mock/config/profile-versions/old.json/2026-04-26T10-00-00-000Z-a.json': JSON.stringify({
+          version: 1,
+          id: 'old.json/2026-04-26T10-00-00-000Z-a.json',
+          profileFile: 'old.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        })
+      };
+
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => {
+        const target = String(filePath);
+        if (target in files) return true;
+        return Object.keys(files).some((existingPath) => existingPath.startsWith(`${target}/`));
+      });
+      vi.mocked(fs.readdirSync).mockImplementation((dirPath: any) => {
+        const target = `${String(dirPath)}/`;
+        return Object.keys(files)
+          .filter((filePath) => filePath.startsWith(target))
+          .map((filePath) => filePath.slice(target.length))
+          .filter((entry) => !entry.includes('/')) as any;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => files[String(filePath)]);
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        files[String(filePath)] = String(content);
+      });
+      vi.mocked(fs.renameSync).mockImplementation((fromPath: any, toPath: any) => {
+        const from = String(fromPath);
+        const to = String(toPath);
+
+        if (from in files) {
+          files[to] = files[from];
+          delete files[from];
+          return;
+        }
+
+        const prefix = `${from}/`;
+        for (const filePath of Object.keys(files)) {
+          if (!filePath.startsWith(prefix)) continue;
+          const nextPath = `${to}/${filePath.slice(prefix.length)}`;
+          files[nextPath] = files[filePath];
+          delete files[filePath];
+        }
+      });
+
+      renameProfileFile('old.json', 'new.json');
+
+      const versions = listProfileVersions('new.json');
+      const read = readProfileVersion('new.json/2026-04-26T10-00-00-000Z-a.json');
+
+      expect(versions).toEqual([
+        {
+          version: 1,
+          id: 'new.json/2026-04-26T10-00-00-000Z-a.json',
+          profileFile: 'new.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          source: PROFILE_VERSION_SOURCE.BULK,
+          operation: {
+            source: PROFILE_VERSION_SOURCE.BULK,
+            target: BULK_ASSIGNMENT_TARGET.BOTH,
+            mode: BULK_ASSIGNMENT_MODE.FILL_ONLY,
+          },
+          operationSummary: 'Bulk fill both',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        }
+      ]);
+      expect(read.id).toBe('new.json/2026-04-26T10-00-00-000Z-a.json');
+      expect(read.profileFile).toBe('new.json');
+      expect(fs.renameSync).toHaveBeenCalledWith('/mock/profiles/old.json', '/mock/profiles/new.json');
+      expect(fs.renameSync).toHaveBeenCalledWith('/mock/config/profile-versions/old.json', '/mock/config/profile-versions/new.json');
+    });
+
+    it('renames the profile and preserves corrupt version files without blocking valid snapshot migration', () => {
+      const files: Record<string, string> = {
+        '/mock/profiles/old.json': '{"models":{"sdd-init":"live/model"}}',
+        '/mock/config/profile-versions/old.json/2026-04-26T10-00-00-000Z-good.json': JSON.stringify({
+          version: 1,
+          id: 'old.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'old.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        }),
+        '/mock/config/profile-versions/old.json/2026-04-26T11-00-00-000Z-bad.json': '{invalid json'
+      };
+
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => {
+        const target = String(filePath);
+        if (target in files) return true;
+        return Object.keys(files).some((existingPath) => existingPath.startsWith(`${target}/`));
+      });
+      vi.mocked(fs.readdirSync).mockImplementation((dirPath: any) => {
+        const target = `${String(dirPath)}/`;
+        return Object.keys(files)
+          .filter((filePath) => filePath.startsWith(target))
+          .map((filePath) => filePath.slice(target.length))
+          .filter((entry) => !entry.includes('/')) as any;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => files[String(filePath)]);
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        files[String(filePath)] = String(content);
+      });
+      vi.mocked(fs.renameSync).mockImplementation((fromPath: any, toPath: any) => {
+        const from = String(fromPath);
+        const to = String(toPath);
+
+        if (from in files) {
+          files[to] = files[from];
+          delete files[from];
+          return;
+        }
+
+        const prefix = `${from}/`;
+        for (const filePath of Object.keys(files)) {
+          if (!filePath.startsWith(prefix)) continue;
+          const nextPath = `${to}/${filePath.slice(prefix.length)}`;
+          files[nextPath] = files[filePath];
+          delete files[filePath];
+        }
+      });
+
+      renameProfileFile('old.json', 'new.json');
+
+      expect(listProfileVersions('new.json')).toEqual([
+        {
+          version: 1,
+          id: 'new.json/2026-04-26T10-00-00-000Z-good.json',
+          profileFile: 'new.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          source: PROFILE_VERSION_SOURCE.BULK,
+          operation: {
+            source: PROFILE_VERSION_SOURCE.BULK,
+            target: BULK_ASSIGNMENT_TARGET.BOTH,
+            mode: BULK_ASSIGNMENT_MODE.FILL_ONLY,
+          },
+          operationSummary: 'Bulk fill both',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        }
+      ]);
+      expect(files['/mock/config/profile-versions/new.json/2026-04-26T11-00-00-000Z-bad.json']).toBe('{invalid json');
+      expect(files['/mock/config/profile-versions/new.json/2026-04-26T10-00-00-000Z-good.json']).toContain('"id": "new.json/2026-04-26T10-00-00-000Z-good.json"');
+    });
+
+    it('rolls back the profile rename if version history rename fails', () => {
+      const files: Record<string, string> = {
+        '/mock/profiles/old.json': '{"models":{"sdd-init":"live/model"}}',
+        '/mock/config/profile-versions/old.json/2026-04-26T10-00-00-000Z-a.json': JSON.stringify({
+          version: 1,
+          id: 'old.json/2026-04-26T10-00-00-000Z-a.json',
+          profileFile: 'old.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        })
+      };
+
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => {
+        const target = String(filePath);
+        if (target in files) return true;
+        return Object.keys(files).some((existingPath) => existingPath.startsWith(`${target}/`));
+      });
+      vi.mocked(fs.readdirSync).mockImplementation((dirPath: any) => {
+        const target = `${String(dirPath)}/`;
+        return Object.keys(files)
+          .filter((filePath) => filePath.startsWith(target))
+          .map((filePath) => filePath.slice(target.length))
+          .filter((entry) => !entry.includes('/')) as any;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => files[String(filePath)]);
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        files[String(filePath)] = String(content);
+      });
+      vi.mocked(fs.renameSync).mockImplementation((fromPath: any, toPath: any) => {
+        const from = String(fromPath);
+        const to = String(toPath);
+
+        if (from === '/mock/config/profile-versions/old.json' && to === '/mock/config/profile-versions/new.json') {
+          throw new Error('version rename failed');
+        }
+
+        if (from in files) {
+          files[to] = files[from];
+          delete files[from];
+          return;
+        }
+
+        const prefix = `${from}/`;
+        for (const filePath of Object.keys(files)) {
+          if (!filePath.startsWith(prefix)) continue;
+          const nextPath = `${to}/${filePath.slice(prefix.length)}`;
+          files[nextPath] = files[filePath];
+          delete files[filePath];
+        }
+      });
+
+      expect(() => renameProfileFile('old.json', 'new.json')).toThrow('version rename failed');
+      expect(files['/mock/profiles/old.json']).toBe('{"models":{"sdd-init":"live/model"}}');
+      expect(files['/mock/profiles/new.json']).toBeUndefined();
+    });
+
+    it('rolls back rewritten version metadata if migration fails mid-rewrite', () => {
+      const files: Record<string, string> = {
+        '/mock/profiles/old.json': '{"models":{"sdd-init":"live/model"}}',
+        '/mock/config/profile-versions/old.json/2026-04-26T10-00-00-000Z-a.json': JSON.stringify({
+          version: 1,
+          id: 'old.json/2026-04-26T10-00-00-000Z-a.json',
+          profileFile: 'old.json',
+          createdAt: '2026-04-26T10:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both',
+          beforeRaw: '{"models":{"sdd-init":"old/model"}}',
+          preview: { models: { 'sdd-init': 'old/model' }, fallback: {} }
+        }),
+        '/mock/config/profile-versions/old.json/2026-04-26T11-00-00-000Z-b.json': JSON.stringify({
+          version: 1,
+          id: 'old.json/2026-04-26T11-00-00-000Z-b.json',
+          profileFile: 'old.json',
+          createdAt: '2026-04-26T11:00:00.000Z',
+          operation,
+          operationSummary: 'Bulk fill both again',
+          beforeRaw: '{"models":{"sdd-init":"older/model"}}',
+          preview: { models: { 'sdd-init': 'older/model' }, fallback: {} }
+        })
+      };
+
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => {
+        const target = String(filePath);
+        if (target in files) return true;
+        return Object.keys(files).some((existingPath) => existingPath.startsWith(`${target}/`));
+      });
+      vi.mocked(fs.readdirSync).mockImplementation((dirPath: any) => {
+        const target = `${String(dirPath)}/`;
+        return Object.keys(files)
+          .filter((filePath) => filePath.startsWith(target))
+          .map((filePath) => filePath.slice(target.length))
+          .filter((entry) => !entry.includes('/')) as any;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => files[String(filePath)]);
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        files[String(filePath)] = String(content);
+      });
+      vi.mocked(fs.renameSync).mockImplementation((fromPath: any, toPath: any) => {
+        const from = String(fromPath);
+        const to = String(toPath);
+
+        if (from.includes('2026-04-26T11-00-00-000Z-b.json.tmp-') && to.endsWith('/2026-04-26T11-00-00-000Z-b.json')) {
+          throw new Error('version rewrite failed');
+        }
+
+        if (from in files) {
+          files[to] = files[from];
+          delete files[from];
+          return;
+        }
+
+        const prefix = `${from}/`;
+        for (const filePath of Object.keys(files)) {
+          if (!filePath.startsWith(prefix)) continue;
+          const nextPath = `${to}/${filePath.slice(prefix.length)}`;
+          files[nextPath] = files[filePath];
+          delete files[filePath];
+        }
+      });
+
+      expect(() => renameProfileFile('old.json', 'new.json')).toThrow('version rewrite failed');
+      expect(files['/mock/profiles/old.json']).toBe('{"models":{"sdd-init":"live/model"}}');
+      expect(files['/mock/profiles/new.json']).toBeUndefined();
+
+      const firstVersion = readProfileVersion('old.json/2026-04-26T10-00-00-000Z-a.json');
+      const secondVersion = readProfileVersion('old.json/2026-04-26T11-00-00-000Z-b.json');
+
+      expect(firstVersion.id).toBe('old.json/2026-04-26T10-00-00-000Z-a.json');
+      expect(firstVersion.profileFile).toBe('old.json');
+      expect(secondVersion.id).toBe('old.json/2026-04-26T11-00-00-000Z-b.json');
+      expect(secondVersion.profileFile).toBe('old.json');
+      expect(files['/mock/config/profile-versions/new.json/2026-04-26T10-00-00-000Z-a.json']).toBeUndefined();
+    });
+
+    it('deletes matching profile version history with the profile file', () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/profile-versions/team.json');
+
+      deleteProfileFile('team.json');
+
+      expect(fs.unlinkSync).toHaveBeenCalledWith('/mock/profiles/team.json');
+      expect(fs.rmSync).toHaveBeenCalledWith('/mock/config/profile-versions/team.json', { recursive: true, force: true });
     });
   });
 });

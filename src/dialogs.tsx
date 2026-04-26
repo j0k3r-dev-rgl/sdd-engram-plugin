@@ -32,8 +32,7 @@ import { resolvePaths, ensureProfilesDir, resolveProjectName } from "./config";
 import {
   listProfileFiles,
   readProfileData,
-  readProfileModels,
-  readProfileFallbackModels,
+  sanitizeProfileName,
   writeProfileModels,
   updateProfileWithBulkPhaseAssignment,
   updateProfilePhaseModel,
@@ -317,21 +316,21 @@ export function showCreateProfile(api: any) {
           return;
         }
 
-        const finalName = trimmed.replace(/\.json$/i, "");
-        const fileName = `${finalName}.json`;
-        const profilePath = path.join(profilesDir, fileName);
-
-        if (fs.existsSync(profilePath)) {
-          api.ui.toast({
-            title: "Error",
-            message: `Profile '${finalName}' already exists`,
-            variant: "error",
-          });
-          showProfilesMenuFn(api);
-          return;
-        }
-
         try {
+          const finalName = sanitizeProfileName(trimmed);
+          const fileName = `${finalName}.json`;
+          const profilePath = path.join(profilesDir, fileName);
+
+          if (fs.existsSync(profilePath)) {
+            api.ui.toast({
+              title: "Error",
+              message: `Profile '${finalName}' already exists`,
+              variant: "error",
+            });
+            showProfilesMenuFn(api);
+            return;
+          }
+
           writeProfileModels(profilePath, {});
           
           // Defer both navigation and toast to next tick to ensure the current 
@@ -536,19 +535,19 @@ function showRenameProfile(api: any, profileOpt: any) {
           return;
         }
 
-        const finalName = trimmed.replace(/\.json$/i, "");
-        const newFileName = `${finalName}.json`;
-
-        const { profilesDir } = resolvePaths();
-        const newPath = path.join(profilesDir, newFileName);
-
-        if (fs.existsSync(newPath)) {
-          api.ui.toast({ title: "Error", message: "A profile with this name already exists", variant: "error" });
-          showProfileDetailFn(api, profileOpt);
-          return;
-        }
-
         try {
+          const finalName = sanitizeProfileName(trimmed);
+          const newFileName = `${finalName}.json`;
+
+          const { profilesDir } = resolvePaths();
+          const newPath = path.join(profilesDir, newFileName);
+
+          if (fs.existsSync(newPath)) {
+            api.ui.toast({ title: "Error", message: "A profile with this name already exists", variant: "error" });
+            showProfileDetailFn(api, profileOpt);
+            return;
+          }
+
           renameProfileFile(profileOpt.value, newFileName);
           api.ui.toast({ title: "Renamed", message: `Profile renamed to '${finalName}'` });
           showProfileListFn(api);

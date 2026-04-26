@@ -38,6 +38,7 @@ import { resolvePaths, ensureProfilesDir } from "./config";
 
 const PROFILE_VERSION_FORMAT = 1;
 const DEFAULT_PROFILE_VERSION_RETENTION = 60;
+const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
 function isUnassignedProfileValue(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
@@ -51,6 +52,29 @@ function isUnassignedProfileValue(value: unknown): boolean {
  */
 export function isSddProfile(fileName: string): boolean {
   return fileName.endsWith(".json");
+}
+
+export function sanitizeProfileName(profileName: string): string {
+  const trimmed = profileName?.trim();
+  if (!trimmed) {
+    throw new Error("Profile name cannot be empty");
+  }
+
+  const baseName = trimmed.replace(/\.json$/i, "");
+  if (!baseName || baseName === "." || baseName === "..") {
+    throw new Error("Profile name is invalid");
+  }
+
+  if (
+    baseName.includes("/") ||
+    baseName.includes("\\") ||
+    baseName.includes("..") ||
+    !PROFILE_NAME_PATTERN.test(baseName)
+  ) {
+    throw new Error("Profile name contains unsafe characters");
+  }
+
+  return baseName;
 }
 
 /**
@@ -87,8 +111,41 @@ export function extractSddFallbackModels(raw: any): ProfileFallbackModels {
   return Object.fromEntries(
     Object.entries(source).filter(
       ([name, value]: any) => isFallbackEligibleSddAgent(name) && typeof value === "string" && value.trim()
-    )
+    ).map(([name, value]: any) => [name, value.trim()])
   );
+}
+
+function normalizeProfileModels(models: unknown): ProfileModels {
+  if (!models || typeof models !== "object" || Array.isArray(models)) return {};
+
+  return Object.fromEntries(
+    Object.entries(models)
+      .filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value === "string" && value.trim())
+      .map(([name, value]: any) => [name, value.trim()])
+  );
+}
+
+function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  return Object.fromEntries(
+    Object.entries(raw).filter(([key]) => {
+      if (key === "models" || key === "fallback" || key === "agent") return false;
+      if (isPrimarySddAgent(key) || isSddFallbackAgent(key)) return false;
+      return true;
+    })
+  );
+}
+
+function normalizePersistedProfileData(profile: ProfileData): ProfileData {
+  const models = normalizeProfileModels(profile?.models);
+  const fallback = extractSddFallbackModels({ fallback: profile?.fallback || {} });
+
+  return {
+    ...extractPersistedProfileExtras(profile),
+    models,
+    ...(Object.keys(fallback).length > 0 ? { fallback } : {}),
+  };
 }
 
 /**
@@ -144,10 +201,13 @@ export function readProfileFallbackModels(profilePath: string): ProfileFallbackM
  */
 export function readProfileData(profilePath: string): ProfileData {
   const raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+  const fallback = readProfileFallbackModels(profilePath);
   return {
-    ...(raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}),
+    ...extractPersistedProfileExtras(raw),
     models: readProfileModels(profilePath),
-    fallback: readProfileFallbackModels(profilePath),
+    ...(Object.keys(fallback).length > 0
+      ? { fallback }
+      : {}),
   };
 }
 
@@ -155,7 +215,7 @@ export function readProfileData(profilePath: string): ProfileData {
  * Persists full profile data while preserving the existing profile payload shape.
  */
 export function writeProfileData(profilePath: string, profile: ProfileData): void {
-  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  fs.writeFileSync(profilePath, JSON.stringify(normalizePersistedProfileData(profile), null, 2));
 }
 
 function normalizePrimarySddAgentNames(primarySddAgentNames: string[]): string[] {
@@ -210,6 +270,32 @@ function atomicWriteFile(filePath: string, content: string): void {
   fs.renameSync(tmpPath, filePath);
 }
 
+function buildEmptyProfilePreview(): { models: ProfileModels; fallback: ProfileFallbackModels } {
+  return { models: {}, fallback: {} };
+}
+
+function buildRenamedProfileVersion(versionFile: string, versionRaw: string, oldProfileFile: string, newProfileFile: string): ProfileVersion {
+  const oldVersionId = `${oldProfileFile}/${versionFile}`;
+  const newVersionId = `${newProfileFile}/${versionFile}`;
+  const parsed = JSON.parse(versionRaw);
+  if (
+    parsed?.version !== PROFILE_VERSION_FORMAT ||
+    parsed?.id !== oldVersionId ||
+    parsed?.profileFile !== oldProfileFile
+  ) {
+    throw new Error("Invalid profile version data");
+  }
+
+  return normalizeProfileVersion(
+    {
+      ...parsed,
+      id: newVersionId,
+      profileFile: newProfileFile,
+    },
+    newVersionId
+  );
+}
+
 function buildOperationSummary(operation: BulkAssignmentOperation, modelsAssigned: number, fallbackAssigned: number): string {
   const action = operation.mode === BULK_ASSIGNMENT_MODE.OVERWRITE ? "Override" : "Set";
   const target = operation.target === BULK_ASSIGNMENT_TARGET.BOTH
@@ -231,6 +317,88 @@ function normalizeBulkVersionOperation(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entryValue]) => typeof entryValue === "string")
+      .map(([key, entryValue]) => [key, entryValue.trim()])
+  );
+}
+
+function normalizePersistedBulkVersionOperation(operation: unknown): BulkProfileVersionOperation | null {
+  if (!isRecord(operation)) return null;
+  if (
+    operation.target !== BULK_ASSIGNMENT_TARGET.PRIMARY &&
+    operation.target !== BULK_ASSIGNMENT_TARGET.FALLBACK &&
+    operation.target !== BULK_ASSIGNMENT_TARGET.BOTH
+  ) {
+    return null;
+  }
+  if (
+    operation.mode !== BULK_ASSIGNMENT_MODE.FILL_ONLY &&
+    operation.mode !== BULK_ASSIGNMENT_MODE.OVERWRITE
+  ) {
+    return null;
+  }
+
+  return normalizeBulkVersionOperation(
+    {
+      target: operation.target,
+      mode: operation.mode,
+    },
+    typeof operation.changedPhases === "number" ? operation.changedPhases : undefined
+  );
+}
+
+function normalizePersistedPhaseVersionOperation(operation: unknown): PhaseProfileVersionOperation | null {
+  if (!isRecord(operation)) return null;
+  if (!isPrimarySddAgent(operation.phase) || isSddFallbackAgent(operation.phase)) return null;
+  if (
+    operation.field !== PROFILE_PHASE_MODEL_FIELD.PRIMARY &&
+    operation.field !== PROFILE_PHASE_MODEL_FIELD.FALLBACK
+  ) {
+    return null;
+  }
+  if (typeof operation.modelId !== "string" || !operation.modelId.trim()) return null;
+
+  return {
+    source: PROFILE_VERSION_SOURCE.PHASE,
+    phase: operation.phase,
+    field: operation.field,
+    modelId: operation.modelId.trim(),
+    changedPhases: 1,
+  };
+}
+
+function normalizePersistedProfileVersionOperation(
+  source: unknown,
+  operation: unknown
+): ProfileVersionOperation | null {
+  if (source === PROFILE_VERSION_SOURCE.PHASE) {
+    return normalizePersistedPhaseVersionOperation(operation);
+  }
+  return normalizePersistedBulkVersionOperation(operation);
+}
+
+function normalizePersistedProfileVersionPreview(preview: unknown): ProfileVersion["preview"] | null {
+  if (!isRecord(preview)) return null;
+
+  const models = sanitizeStringRecord(preview.models);
+  const fallback = sanitizeStringRecord(preview.fallback);
+  if (!models || !fallback) return null;
+
+  return {
+    models: normalizeProfileModels(models),
+    fallback: extractSddFallbackModels({ fallback }),
+  };
+}
+
 function normalizeProfileVersionOperation(operation: BulkAssignmentOperation | ProfileVersionOperation): ProfileVersionOperation {
   if ((operation as ProfileVersionOperation).source === PROFILE_VERSION_SOURCE.PHASE) {
     return operation as PhaseProfileVersionOperation;
@@ -238,14 +406,41 @@ function normalizeProfileVersionOperation(operation: BulkAssignmentOperation | P
   return normalizeBulkVersionOperation(operation as BulkAssignmentOperation | BulkProfileVersionOperation);
 }
 
-function normalizeProfileVersion(parsed: any, versionId: string): ProfileVersion {
-  const operation = normalizeProfileVersionOperation(parsed.operation || {});
-  const source = parsed.source === PROFILE_VERSION_SOURCE.PHASE ? PROFILE_VERSION_SOURCE.PHASE : PROFILE_VERSION_SOURCE.BULK;
+function normalizeProfileVersion(parsed: unknown, versionId: string): ProfileVersion {
+  if (!isRecord(parsed)) {
+    throw new Error("Invalid profile version data");
+  }
+
+  const source = parsed.source === undefined
+    ? PROFILE_VERSION_SOURCE.BULK
+    : parsed.source === PROFILE_VERSION_SOURCE.BULK || parsed.source === PROFILE_VERSION_SOURCE.PHASE
+      ? parsed.source
+      : null;
+  const operation = normalizePersistedProfileVersionOperation(source, parsed.operation);
+  const preview = normalizePersistedProfileVersionPreview(parsed.preview);
+  if (
+    parsed.version !== PROFILE_VERSION_FORMAT ||
+    parsed.id !== versionId ||
+    parsed.profileFile !== parseVersionId(versionId).profileFile ||
+    typeof parsed.createdAt !== "string" ||
+    typeof parsed.operationSummary !== "string" ||
+    typeof parsed.beforeRaw !== "string" ||
+    !source ||
+    !operation ||
+    !preview
+  ) {
+    throw new Error("Invalid profile version data");
+  }
+
   return {
     ...parsed,
     source,
     operation,
     id: versionId,
+    createdAt: parsed.createdAt,
+    operationSummary: parsed.operationSummary,
+    beforeRaw: parsed.beforeRaw,
+    preview,
   };
 }
 
@@ -254,17 +449,21 @@ function buildPhaseOperationSummary(agentName: string, field: ProfilePhaseModelF
 }
 
 function readProfilePreviewFromRaw(beforeRaw: string): { models: ProfileModels; fallback: ProfileFallbackModels } {
-  const raw = JSON.parse(beforeRaw);
-  return {
-    models: raw && typeof raw === "object" && !Array.isArray(raw)
-      ? raw.models && typeof raw.models === "object" && !Array.isArray(raw.models)
-        ? Object.fromEntries(
-            Object.entries(raw.models).filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value === "string")
-          )
-        : extractSddAgentModels(raw)
-      : {},
-    fallback: extractSddFallbackModels(raw),
-  };
+  try {
+    const raw = JSON.parse(beforeRaw);
+    return {
+      models: raw && typeof raw === "object" && !Array.isArray(raw)
+        ? raw.models && typeof raw.models === "object" && !Array.isArray(raw.models)
+          ? Object.fromEntries(
+              Object.entries(raw.models).filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value === "string")
+            )
+          : extractSddAgentModels(raw)
+        : {},
+      fallback: extractSddFallbackModels(raw),
+    };
+  } catch {
+    return buildEmptyProfilePreview();
+  }
 }
 
 /**
@@ -395,7 +594,14 @@ export function listProfileVersions(profilePathOrFile: string): ProfileVersionMe
 
   return fs.readdirSync(versionDir)
     .filter((file) => String(file).endsWith(".json"))
-    .map((file) => readProfileVersion(`${profileFile}/${file}`))
+    .map((file) => {
+      try {
+        return readProfileVersion(`${profileFile}/${file}`);
+      } catch {
+        return null;
+      }
+    })
+    .filter((version): version is ProfileVersion => Boolean(version))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(({ beforeRaw, ...metadata }) => metadata);
 }
@@ -406,9 +612,18 @@ export function restoreProfileVersion(profilePathOrFile: string, versionId: stri
   if (version.profileFile !== profileFile) {
     throw new Error("Profile version does not match selected profile");
   }
-  JSON.parse(version.beforeRaw);
   const { profilesDir } = resolvePaths();
-  fs.writeFileSync(path.join(profilesDir, profileFile), version.beforeRaw);
+  const profilePath = path.join(profilesDir, profileFile);
+  createProfileVersion(
+    profilePath,
+    {
+      source: PROFILE_VERSION_SOURCE.BULK,
+      target: BULK_ASSIGNMENT_TARGET.BOTH,
+      mode: BULK_ASSIGNMENT_MODE.OVERWRITE,
+    },
+    `Snapshot before restoring ${path.basename(versionId)}`
+  );
+  fs.writeFileSync(profilePath, version.beforeRaw);
   return version;
 }
 
@@ -493,7 +708,7 @@ export function writeProfileModels(profilePath: string, models: ProfileModels): 
     models,
     ...(Object.keys(fallback).length > 0 ? { fallback } : {}),
   };
-  fs.writeFileSync(profilePath, JSON.stringify(payload, null, 2));
+  writeProfileData(profilePath, payload);
 }
 
 /**
@@ -505,7 +720,7 @@ export function writeProfileFallbackModels(profilePath: string, fallback: Profil
     models,
     ...(Object.keys(fallback).length > 0 ? { fallback } : {}),
   };
-  fs.writeFileSync(profilePath, JSON.stringify(payload, null, 2));
+  writeProfileData(profilePath, payload);
 }
 
 /**
@@ -747,8 +962,14 @@ export function listProfileFiles(): string[] {
  */
 export function deleteProfileFile(fileName: string): void {
   const { profilesDir } = resolvePaths();
-  const profilePath = path.join(profilesDir, fileName);
+  const safeFileName = safeProfileFileName(fileName);
+  const profilePath = path.join(profilesDir, safeFileName);
   fs.unlinkSync(profilePath);
+
+  const versionDir = resolveProfileVersionDir(safeFileName);
+  if (fs.existsSync(versionDir)) {
+    fs.rmSync(versionDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -759,7 +980,79 @@ export function deleteProfileFile(fileName: string): void {
  */
 export function renameProfileFile(oldFileName: string, newFileName: string): void {
   const { profilesDir } = resolvePaths();
-  const oldPath = path.join(profilesDir, oldFileName);
-  const newPath = path.join(profilesDir, newFileName);
-  fs.renameSync(oldPath, newPath);
+  const safeOldFileName = safeProfileFileName(oldFileName);
+  const safeNewFileName = safeProfileFileName(newFileName);
+  const oldPath = path.join(profilesDir, safeOldFileName);
+  const newPath = path.join(profilesDir, safeNewFileName);
+  const oldVersionDir = resolveProfileVersionDir(safeOldFileName);
+  const newVersionDir = resolveProfileVersionDir(safeNewFileName);
+  if (!fs.existsSync(oldPath)) {
+    throw new Error("Profile file not found");
+  }
+  if (fs.existsSync(newPath)) {
+    throw new Error("Target profile file already exists");
+  }
+  if (fs.existsSync(newVersionDir)) {
+    throw new Error("Target profile version history already exists");
+  }
+
+  const migratedVersions = fs.existsSync(oldVersionDir)
+    ? fs.readdirSync(oldVersionDir)
+      .filter((file) => String(file).endsWith(".json"))
+      .map((file) => {
+        const versionFile = String(file);
+        const versionPath = path.join(oldVersionDir, versionFile);
+        try {
+          const version = buildRenamedProfileVersion(
+            versionFile,
+            fs.readFileSync(versionPath, "utf-8").toString(),
+            safeOldFileName,
+            safeNewFileName
+          );
+          return { versionFile, version };
+        } catch {
+          return null;
+        }
+      })
+      .filter((version): version is { versionFile: string; version: ProfileVersion } => Boolean(version))
+    : [];
+
+  let profileRenamed = false;
+  let versionDirRenamed = false;
+  const rewrittenVersionContents = new Map<string, string>();
+
+  try {
+    fs.renameSync(oldPath, newPath);
+    profileRenamed = true;
+    if (!fs.existsSync(oldVersionDir)) return;
+
+    fs.renameSync(oldVersionDir, newVersionDir);
+    versionDirRenamed = true;
+
+    for (const migratedVersion of migratedVersions) {
+      const versionPath = path.join(newVersionDir, migratedVersion.versionFile);
+      rewrittenVersionContents.set(versionPath, fs.readFileSync(versionPath, "utf-8").toString());
+      atomicWriteFile(versionPath, JSON.stringify(migratedVersion.version, null, 2));
+    }
+  } catch (error) {
+    for (const [versionPath, originalContent] of rewrittenVersionContents.entries()) {
+      try {
+        fs.writeFileSync(versionPath, originalContent);
+      } catch {}
+    }
+
+    if (versionDirRenamed) {
+      try {
+        fs.renameSync(newVersionDir, oldVersionDir);
+      } catch {}
+    }
+
+    if (profileRenamed) {
+      try {
+        fs.renameSync(newPath, oldPath);
+      } catch {}
+    }
+
+    throw error;
+  }
 }

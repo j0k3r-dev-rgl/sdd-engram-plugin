@@ -137,7 +137,7 @@ Fallback phases
   sdd-spec      google/gemini-flash-2.0
   sdd-apply     inherited from primary
 
-[Activate]  [Edit JSON]  [Bulk actions...]  [Profile versions...]
+[Activate]  [Bulk actions...]  [Profile versions...]
 ```
 
 ```text
