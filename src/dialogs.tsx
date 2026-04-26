@@ -329,9 +329,12 @@ export function showProfileDetail(api: any, profileOpt: any) {
     const profilePath = path.join(profilesDir, profileOpt.value);
     const profileData = readProfileData(profilePath);
     const configAgents = api.state.config?.agent || {};
-    const sddAgentNames = Object.keys(configAgents)
-      .filter(isPrimarySddAgent)
-      .sort();
+    const profileAgentNames = Object.keys(profileData.models || {}).sort();
+    const sddAgentNames = profileAgentNames.length > 0
+      ? profileAgentNames
+      : Object.keys(configAgents)
+          .filter(isPrimarySddAgent)
+          .sort();
 
     const sddAgents = sddAgentNames.map((name) => [name, profileData.models?.[name]] as [string, string | undefined]);
     const fallbackModelMap = profileData.fallback || {};
