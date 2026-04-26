@@ -11,6 +11,8 @@ Manage [SDD (Spec-Driven Development)](https://github.com/Gentleman-Programming/
 - **Create:** Create an empty SDD profile for manual configuration.
 - **Activate:** Apply a saved profile to the global runtime config instantly — no restart required. Changes are live immediately.
 - **Edit Models:** Pick a different provider/model for any agent or fallback directly from the UI.
+- **Bulk Actions:** Use **Bulk actions...** to assign primary models, fallback models, or both across the whole profile.
+- **Profile Versions:** Use **Profile versions...** to preview and restore saved snapshots before risky changes.
 - **Rename & Delete:** Full lifecycle management for your profiles.
 - **Per-Agent Fallbacks:** Configure a fallback model per `sdd-*` base agent (except `sdd-orchestrator`). On activation, the plugin ensures `sdd-*-fallback` agents exist and stay in sync with their base agent config. Primary models are applied first, so you can define new agents and their fallbacks in a single profile activation.
 - **Active Profile Detection:** The plugin automatically detects and highlights which profile matches the current config.
@@ -35,6 +37,8 @@ Profiles are stored as JSON files under `~/.config/opencode/profiles/`:
 
 - `models`: primary model per base `sdd-*` agent.
 - `fallback`: optional fallback model override per base agent name. If omitted, the fallback agent inherits the base model.
+
+Profile versions are stored separately under `~/.config/opencode/profile-versions/`, or `$XDG_CONFIG_HOME/opencode/profile-versions/` when `XDG_CONFIG_HOME` is set. Version metadata is not written into the main profile JSON file, so profile files stay portable and focused on runtime model configuration.
 
 Legacy flat format is also supported for backwards compatibility:
 
@@ -87,7 +91,38 @@ Open the plugin with:
 2. **Create a profile** for your project, or **Manage Profiles** to activate/configure one.
 3. From the profile detail, click any agent to change its model (provider → model picker).
 4. Click any fallback entry to override its model.
-5. **Activate** to apply the profile to the live runtime.
+5. Use **Bulk actions...** when you want to configure many agents at once.
+6. Use **Profile versions...** to preview or restore previous snapshots.
+7. **Activate** to apply the profile to the live runtime.
+
+### Bulk Profile Actions
+
+From a profile detail screen, **Bulk actions...** lets you apply one model selection to many phase entries:
+
+- **Set all primary phases:** fill missing primary phase models only.
+- **Set all fallback phases:** fill missing fallback phase models only.
+- **Set all phases and fallbacks:** fill missing primary and fallback phase models.
+- **Override all primary phases:** replace every primary phase model after confirmation.
+- **Override all fallback phases:** replace every fallback phase model after confirmation.
+- **Override all phases and fallbacks:** replace every primary and fallback phase model after confirmation.
+
+The difference is intentional:
+
+- **Set** actions are fill-only. They keep existing values and only populate empty entries.
+- **Override** actions are overwrite operations. They can replace existing choices, so the UI asks for confirmation before applying them.
+
+Before any bulk operation is applied, the plugin saves a profile version automatically.
+
+### Profile Versions
+
+Use **Profile versions...** from the profile detail screen to review saved profile snapshots.
+
+- Versions are created automatically before bulk profile actions.
+- Versions are also created automatically before individual primary or fallback phase model changes.
+- Each version can be previewed before restoring it.
+- Restore writes the selected snapshot back to the profile file.
+
+Version history is stored outside the profile JSON under `~/.config/opencode/profile-versions/`, or `$XDG_CONFIG_HOME/opencode/profile-versions/` when configured. The profile JSON itself only contains model data (`models` and `fallback`); version metadata is kept out of the main profile file.
 
 ---
 
