@@ -1453,11 +1453,9 @@ describe('profiles logic', () => {
       const api = {
         ui: { toast },
         client: {
-          global: {
-            config: {
-              get: vi.fn(),
-              update: vi.fn(),
-            },
+          config: {
+            get: vi.fn(),
+            update: vi.fn(),
           },
         },
       } as any;
@@ -1465,11 +1463,43 @@ describe('profiles logic', () => {
       const result = await activateProfileFile(api, '/mock/profiles/team.json', 'team');
 
       expect(result).toBeNull();
-      expect(api.client.global.config.update).not.toHaveBeenCalled();
+      expect(api.client.config.update).not.toHaveBeenCalled();
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Activation Failed',
         variant: 'error',
       }));
+    });
+
+    it('successfully activates a profile using the new SDK config API', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({ models: { 'sdd-init': 'gpt-4' } });
+        }
+        return JSON.stringify({ agent: { 'sdd-init': { model: 'old-model' } } });
+      });
+
+      const updateMock = vi.fn().mockResolvedValue({ data: { success: true } });
+      const api = {
+        ui: { toast: vi.fn() },
+        client: {
+          config: {
+            get: vi.fn(),
+            update: updateMock,
+          },
+        },
+      } as any;
+
+      const result = await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      expect(result).toEqual({ success: true });
+      expect(updateMock).toHaveBeenCalledWith({
+        body: expect.objectContaining({
+          agent: expect.objectContaining({
+            'sdd-init': expect.objectContaining({ model: 'gpt-4' })
+          })
+        })
+      });
     });
   });
 });

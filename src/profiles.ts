@@ -1008,7 +1008,7 @@ export async function activateProfileFile(api: any, profilePath: string, profile
         throw new Error("Global config JSON is invalid");
       }
     } else {
-      const globalConfigResult = await api.client.global.config.get();
+      const globalConfigResult = await api.client.config.get();
       currentConfig = globalConfigResult?.data || {};
     }
 
@@ -1020,8 +1020,8 @@ export async function activateProfileFile(api: any, profilePath: string, profile
 
     const nextConfig = syncSddFallbackAgents(nextConfigWithModels, profileData.fallback || {});
 
-    const result = await api.client.global.config.update({
-      config: nextConfig,
+    const result = await api.client.config.update({
+      body: nextConfig,
     });
 
     if (result?.error) throw new Error(result.error.message || "Failed to update global runtime configuration");
