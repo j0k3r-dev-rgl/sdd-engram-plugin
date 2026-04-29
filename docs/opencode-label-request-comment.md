@@ -1,0 +1,1 @@
+Maintainers: could you please add the `core` label to this issue? I recreated it using the verified `Bug report` template, which applied `bug` automatically, but my account does not have permission to add additional labels in this repository.

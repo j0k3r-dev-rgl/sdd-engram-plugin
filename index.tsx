@@ -15,7 +15,7 @@ import { ActiveModelBadge } from "./components";
 // Direct imports to avoid barrel resolution issues in some environments
 import { activeProfile, setActiveProfile } from "./src/state";
 import { resolvePaths } from "./src/config";
-import { parseActiveProfileFromRaw } from "./src/utils";
+import { parseActiveProfileFromRaw, resolveSessionActiveModel } from "./src/utils";
 import {
   showProfilesMenu,
   showProfileList,
@@ -55,6 +55,10 @@ function readActiveProfile(api: any) {
   }
 }
 
+function resolveDisplayedModel(api: any, sessionId?: string) {
+  return resolveSessionActiveModel(api, sessionId) || activeProfile;
+}
+
 // -- Plugin Entry ------------------------------------------------------------
 
 const id = "sdd-model-select";
@@ -86,10 +90,12 @@ const tui: TuiPlugin = async (api) => {
   api.slots.register({
     slots: {
       home_bottom(ctx: any) {
-        return <ActiveModelBadge profile={activeProfile} theme={ctx.theme.current} />;
+        const route = api.route.current;
+        const sessionId = route.name === "session" ? route.params?.sessionID : undefined;
+        return <ActiveModelBadge profile={resolveDisplayedModel(api, sessionId)} theme={ctx.theme.current} />;
       },
       sidebar_content(ctx: any) {
-        return <ActiveModelBadge profile={activeProfile} theme={ctx.theme.current} />;
+        return <ActiveModelBadge profile={resolveDisplayedModel(api, ctx.session_id)} theme={ctx.theme.current} />;
       },
     },
   });

@@ -18,12 +18,12 @@ export function ActiveModelBadge(props: { profile: any; theme: any }) {
     return `${tokens} ctx`;
   };
 
-  const text = props.profile 
-    ? `${props.profile.modelName} · ${formatContext(props.profile.contextLimit)}` 
+  const text = props.profile
+    ? `${props.profile.modelName} · ${formatContext(props.profile.contextLimit)}`
     : "No SDD model active";
 
-  const color = props.profile 
-    ? (props.theme?.primary || "#00ff00") 
+  const color = props.profile
+    ? (props.theme?.primary || "#00ff00")
     : (props.theme?.textMuted || "#888");
 
   return (

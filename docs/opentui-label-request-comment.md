@@ -1,0 +1,1 @@
+Maintainers: could you please add the `bug` and `core` labels to this issue? I verified the repository configuration before recreating it, but my account does not have permission to apply labels in this repository.
