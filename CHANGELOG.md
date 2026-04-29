@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.2.0...v1.3.0) (2026-04-29)
+
+
+### Bug Fixes
+
+* **test:** update utils expectations for missing providers ([09ee863](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/09ee86320959ac645ef46ede723abb2bdee2cce0))
+
+
+### Features
+
+* synchronize status badge with active session orchestrator ([bc8f263](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/bc8f263ab1f8edf9afaaaf69d91c796660484048)), closes [#17](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/17)
+
 # [1.2.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.1.7...v1.2.0) (2026-04-27)
 
 
