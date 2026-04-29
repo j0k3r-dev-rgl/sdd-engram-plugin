@@ -197,7 +197,7 @@ describe('utils logic', () => {
       const result = parseActiveProfileFromRaw(raw, mockApi);
       expect(result).toEqual({
         modelId: 'anthropic/claude',
-        modelName: 'anthropic/claude',
+        modelName: 'claude',
         providerName: 'anthropic',
         contextLimit: null
       });
