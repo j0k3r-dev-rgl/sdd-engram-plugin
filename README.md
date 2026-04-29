@@ -76,6 +76,39 @@ Add the plugin to your `tui.json`:
 }
 ```
 
+### Check current version
+
+To check the latest published version on npm:
+
+```bash
+npm view opencode-sdd-engram-manage version
+```
+
+To check the version currently cached by OpenCode:
+
+```bash
+jq -r .version ~/.cache/opencode/packages/opencode-sdd-engram-manage@latest/node_modules/opencode-sdd-engram-manage/package.json
+```
+
+> Note: the cache path above assumes you installed the plugin as `opencode-sdd-engram-manage@latest` (or without an explicit version). If you pin a version, the cache directory name will use that pinned spec instead.
+
+### Update
+
+OpenCode installs npm plugins automatically and caches them. To force OpenCode to fetch the latest published version, remove the cached package and restart OpenCode:
+
+```bash
+rm -rf ~/.cache/opencode/packages/opencode-sdd-engram-manage@latest
+```
+
+You can also pin a specific version in `tui.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["opencode-sdd-engram-manage@1.2.0"]
+}
+```
+
 ---
 
 ## Usage
