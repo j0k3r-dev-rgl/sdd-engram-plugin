@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.2...v1.3.3) (2026-04-29)
+
+
+### Bug Fixes
+
+* add repository and metadata for npm listing ([7cf66f0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/7cf66f05b1b6d010a5c65de413a84e55a50a715b))
+
 ## [1.3.2](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.1...v1.3.2) (2026-04-29)
 
 
