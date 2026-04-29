@@ -1,6 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 // @ts-nocheck
 
+import { createMemo } from "solid-js";
+import { formatContext } from "./src/utils";
+
 /**
  * UI Badge component that displays information about the active SDD model
  * 
@@ -8,31 +11,23 @@
  * @param props.theme - The current UI theme configuration
  */
 export function ActiveModelBadge(props: { profile: any; theme: any }) {
-  /**
-   * Formats token context into human-readable string
-   */
-  const formatContext = (tokens: number | null): string => {
-    if (!tokens || typeof tokens !== "number") return "ctx: N/A";
-    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M ctx`;
-    if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k ctx`;
-    return `${tokens} ctx`;
-  };
+  const text = createMemo(() => props.profile 
+    ? `${props.profile.modelName} · ${formatContext(props.profile.contextLimit)}` 
+    : "No SDD model active");
 
-  const text = props.profile
-    ? `${props.profile.modelName} · ${formatContext(props.profile.contextLimit)}`
-    : "No SDD model active";
+  const color = createMemo(() => props.profile 
+    ? (props.theme?.primary || "#00ff00") 
+    : (props.theme?.textMuted || "#888"));
 
-  const color = props.profile
-    ? (props.theme?.primary || "#00ff00")
-    : (props.theme?.textMuted || "#888");
+  const icon = createMemo(() => props.profile ? "󰚩 " : "󱚧 ");
 
   return (
     <box flexDirection="row" alignItems="center" padding={{ left: 1, right: 1 }}>
-      <text fg={color} bold={props.profile ? true : false}>
-        {props.profile ? "󰚩 " : "󱚧 "}
+      <text fg={color()} bold={props.profile ? true : false}>
+        {icon()}
       </text>
       <text fg={props.theme?.text || "inherit"}>
-        {text}
+        {text()}
       </text>
     </box>
   );

@@ -9,6 +9,7 @@
  */
 
 import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin";
+import { createMemo, createEffect } from "solid-js";
 import * as fs from "node:fs";
 import { ActiveModelBadge } from "./components";
 
@@ -56,7 +57,7 @@ function readActiveProfile(api: any) {
 }
 
 function resolveDisplayedModel(api: any, sessionId?: string) {
-  return resolveSessionActiveModel(api, sessionId) || activeProfile;
+  return resolveSessionActiveModel(api, sessionId) || activeProfile();
 }
 
 // -- Plugin Entry ------------------------------------------------------------
@@ -75,6 +76,14 @@ const tui: TuiPlugin = async (api) => {
   const profile = readActiveProfile(api);
   setActiveProfile(profile);
 
+  // Keep the active profile in sync with global config changes
+  createEffect(() => {
+    const currentConfig = api.state.config;
+    if (currentConfig) {
+      setActiveProfile(parseActiveProfileFromRaw(JSON.stringify(currentConfig), api));
+    }
+  });
+
   // Register the main command
   api.command.register(() => [
     {
@@ -90,12 +99,16 @@ const tui: TuiPlugin = async (api) => {
   api.slots.register({
     slots: {
       home_bottom(ctx: any) {
-        const route = api.route.current;
-        const sessionId = route.name === "session" ? route.params?.sessionID : undefined;
-        return <ActiveModelBadge profile={resolveDisplayedModel(api, sessionId)} theme={ctx.theme.current} />;
+        const profile = createMemo(() => {
+          const route = api.route.current;
+          const sessionId = route.name === "session" ? route.params?.sessionID : undefined;
+          return resolveDisplayedModel(api, sessionId);
+        });
+        return <ActiveModelBadge profile={profile()} theme={ctx.theme.current} />;
       },
       sidebar_content(ctx: any) {
-        return <ActiveModelBadge profile={resolveDisplayedModel(api, ctx.session_id)} theme={ctx.theme.current} />;
+        const profile = createMemo(() => resolveDisplayedModel(api, ctx.session_id));
+        return <ActiveModelBadge profile={profile()} theme={ctx.theme.current} />;
       },
     },
   });

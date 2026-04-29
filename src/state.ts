@@ -1,18 +1,18 @@
 /** @jsxImportSource @opentui/solid */
 // @ts-nocheck
 
-/**
- * Global Plugin State
- * 
- * Manages the active profile state shared across the plugin components.
- */
-
+import { createSignal } from "solid-js";
 import { ActiveProfileState } from "./types";
 
 /**
- * The currently active profile state
+ * The currently active profile state signal
  */
-export let activeProfile: ActiveProfileState | null = null;
+const [activeProfileSignal, setActiveProfileSignal] = createSignal<ActiveProfileState | null>(null);
+
+/**
+ * Getter for the active profile state
+ */
+export const activeProfile = activeProfileSignal;
 
 /**
  * Updates the global active profile state
@@ -20,5 +20,5 @@ export let activeProfile: ActiveProfileState | null = null;
  * @param profile - The new profile state or null to clear it
  */
 export function setActiveProfile(profile: ActiveProfileState | null): void {
-  activeProfile = profile;
+  setActiveProfileSignal(profile);
 }
