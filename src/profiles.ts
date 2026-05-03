@@ -40,9 +40,15 @@ import { resolvePaths, ensureProfilesDir } from "./config";
 const PROFILE_VERSION_FORMAT = 1;
 const DEFAULT_PROFILE_VERSION_RETENTION = 60;
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
+const LEGACY_ORCHESTRATOR_AGENT = "sdd-orchestrator";
+const RUNTIME_ORCHESTRATOR_AGENT = "gentle-orchestrator";
 
 function isUnassignedProfileValue(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
+}
+
+function resolveRuntimeProfileAgentName(agentName: string): string {
+  return agentName === LEGACY_ORCHESTRATOR_AGENT ? RUNTIME_ORCHESTRATOR_AGENT : agentName;
 }
 
 /**
@@ -955,8 +961,9 @@ function applyProfileModelsToConfig(currentConfig: any, profileModels: ProfileMo
   if (!nextConfig.agent) nextConfig.agent = {};
 
   for (const [agentName, modelId] of Object.entries(profileModels)) {
-    nextConfig.agent[agentName] = {
-      ...(nextConfig.agent[agentName] || {}),
+    const runtimeAgentName = resolveRuntimeProfileAgentName(agentName);
+    nextConfig.agent[runtimeAgentName] = {
+      ...(nextConfig.agent[runtimeAgentName] || {}),
       model: modelId,
     };
   }
