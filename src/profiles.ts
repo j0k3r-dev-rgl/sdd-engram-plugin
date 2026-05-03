@@ -326,7 +326,7 @@ function atomicWriteFile(filePath: string, content: string): void {
     fs.writeFileSync(tmpPath, content);
 
     tempFd = fs.openSync(tmpPath, "r+");
-    fs.fsyncSync(tempFd);
+    try { fs.fsyncSync(tempFd); } catch (e: any) { if (e?.code !== "EPERM") throw e; }
     fs.closeSync(tempFd);
     tempFd = undefined;
 
@@ -334,7 +334,7 @@ function atomicWriteFile(filePath: string, content: string): void {
     renameCompleted = true;
 
     dirFd = fs.openSync(path.dirname(filePath), "r");
-    fs.fsyncSync(dirFd);
+    try { fs.fsyncSync(dirFd); } catch (e: any) { if (e?.code !== "EPERM") throw e; }
   } finally {
     if (typeof tempFd === "number") {
       fs.closeSync(tempFd);
