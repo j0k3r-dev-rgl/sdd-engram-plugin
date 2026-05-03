@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.3...v1.3.4) (2026-05-03)
+
+
+### Bug Fixes
+
+* migrate SDD profiles to gentle-orchestrator compatibility ([f9a8e8d](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/f9a8e8dd22cbdead5e5beb2e6c455bda679a144d))
+
 ## [1.3.3](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.2...v1.3.3) (2026-04-29)
 
 
