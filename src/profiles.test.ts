@@ -414,6 +414,26 @@ describe('profiles logic', () => {
       expect(nextConfig.agent['sdd-init'].model).toBe('claude-3');
       expect(nextConfig.agent['sdd-init-fallback'].model).toBe('gpt-3.5');
     });
+
+    it('maps legacy sdd-orchestrator profile models to gentle-orchestrator at runtime', () => {
+      const config = {
+        agent: {
+          'gentle-orchestrator': { model: 'old/model', prompt: '{file:orchestrator.md}' }
+        }
+      };
+      const profile = {
+        models: { 'sdd-orchestrator': 'new/model' },
+        fallback: {}
+      };
+
+      const nextConfig = applyProfileDataToConfig(config, profile);
+
+      expect(nextConfig.agent['gentle-orchestrator']).toEqual({
+        model: 'new/model',
+        prompt: '{file:orchestrator.md}'
+      });
+      expect(nextConfig.agent['sdd-orchestrator']).toBeUndefined();
+    });
   });
 
   describe('assignModelToUnassignedProfilePhases', () => {
@@ -1439,6 +1459,44 @@ describe('profiles logic', () => {
   });
 
   describe('activateProfileFile', () => {
+    it('activates legacy sdd-orchestrator profile models on gentle-orchestrator', async () => {
+      const updatedConfigs: any[] = [];
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({ models: { 'sdd-orchestrator': 'new/model' } });
+        }
+
+        return JSON.stringify({
+          agent: {
+            'gentle-orchestrator': { model: 'old/model', prompt: '{file:orchestrator.md}' }
+          }
+        });
+      });
+
+      const api = {
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update: vi.fn(({ config }) => {
+                updatedConfigs.push(config);
+                return { data: config };
+              }),
+            },
+          },
+        },
+      } as any;
+
+      const result = await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      expect(api.client.global.config.update).toHaveBeenCalledTimes(1);
+      expect(updatedConfigs[0].agent['gentle-orchestrator'].model).toBe('new/model');
+      expect(updatedConfigs[0].agent['sdd-orchestrator']).toBeUndefined();
+      expect(result).toEqual(updatedConfigs[0]);
+    });
+
     it('returns null and shows toast when on-disk global config JSON is invalid', async () => {
       vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
       vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
