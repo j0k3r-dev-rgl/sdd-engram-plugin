@@ -312,6 +312,77 @@ describe('profiles logic', () => {
       expect(fs.closeSync).toHaveBeenCalledWith(202);
     });
 
+    it('ignores EPERM from temp file fsync and still renames the profile', () => {
+      vi.mocked(fs.openSync)
+        .mockReturnValueOnce(101 as any)
+        .mockReturnValueOnce(202 as any);
+      vi.mocked(fs.fsyncSync)
+        .mockImplementationOnce(() => {
+          throw Object.assign(new Error('temp fsync denied'), { code: 'EPERM' });
+        })
+        .mockImplementationOnce(() => undefined as any);
+
+      expect(() => writeProfileData('/mock/profiles/compatible.json', { models: { 'sdd-init': 'gpt-4' } })).not.toThrow();
+      expect(fs.renameSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/),
+        '/mock/profiles/compatible.json'
+      );
+      expect(fs.closeSync).toHaveBeenCalledWith(101);
+      expect(fs.closeSync).toHaveBeenCalledWith(202);
+    });
+
+    it('ignores EPERM from directory fsync after rename completes', () => {
+      vi.mocked(fs.openSync)
+        .mockReturnValueOnce(101 as any)
+        .mockReturnValueOnce(202 as any);
+      vi.mocked(fs.fsyncSync)
+        .mockImplementationOnce(() => undefined as any)
+        .mockImplementationOnce(() => {
+          throw Object.assign(new Error('dir fsync denied'), { code: 'EPERM' });
+        });
+
+      expect(() => writeProfileData('/mock/profiles/compatible.json', { models: { 'sdd-init': 'gpt-4' } })).not.toThrow();
+      expect(fs.renameSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/),
+        '/mock/profiles/compatible.json'
+      );
+      expect(fs.closeSync).toHaveBeenCalledWith(101);
+      expect(fs.closeSync).toHaveBeenCalledWith(202);
+    });
+
+    it('rethrows non-EPERM errors from temp file fsync', () => {
+      vi.mocked(fs.openSync).mockReturnValue(101 as any);
+      vi.mocked(fs.fsyncSync).mockImplementationOnce(() => {
+        throw Object.assign(new Error('temp fsync failed'), { code: 'EIO' });
+      });
+
+      expect(() => writeProfileData('/mock/profiles/compatible.json', { models: { 'sdd-init': 'gpt-4' } })).toThrow('temp fsync failed');
+      expect(fs.closeSync).toHaveBeenCalledWith(101);
+      expect(fs.unlinkSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/)
+      );
+    });
+
+    it('rethrows non-EPERM errors from directory fsync after rename', () => {
+      vi.mocked(fs.openSync)
+        .mockReturnValueOnce(101 as any)
+        .mockReturnValueOnce(202 as any);
+      vi.mocked(fs.fsyncSync)
+        .mockImplementationOnce(() => undefined as any)
+        .mockImplementationOnce(() => {
+          throw Object.assign(new Error('dir fsync failed'), { code: 'EIO' });
+        });
+
+      expect(() => writeProfileData('/mock/profiles/compatible.json', { models: { 'sdd-init': 'gpt-4' } })).toThrow('dir fsync failed');
+      expect(fs.renameSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/),
+        '/mock/profiles/compatible.json'
+      );
+      expect(fs.closeSync).toHaveBeenCalledWith(101);
+      expect(fs.closeSync).toHaveBeenCalledWith(202);
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
     it('writeProfileModels preserves non-model profile fields', () => {
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
         models: { 'sdd-init': 'old/model' },
