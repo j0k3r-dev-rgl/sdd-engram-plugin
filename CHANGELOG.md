@@ -1,3 +1,10 @@
+## [1.3.5](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.4...v1.3.5) (2026-05-03)
+
+
+### Bug Fixes
+
+* handle EPERM on fsync for Windows compatibility ([d284711](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/d284711d2b097e70ccd3e7d9cf748e4aa2d2cfe7))
+
 ## [1.3.4](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.3...v1.3.4) (2026-05-03)
 
 
