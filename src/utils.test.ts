@@ -77,6 +77,7 @@ describe('utils logic', () => {
   describe('agent naming utils', () => {
     it('isManagedSddAgent', () => {
       expect(isManagedSddAgent('sdd-test')).toBe(true);
+      expect(isManagedSddAgent('gentle-orchestrator')).toBe(true);
       expect(isManagedSddAgent('other-test')).toBe(false);
     });
 
@@ -88,6 +89,7 @@ describe('utils logic', () => {
 
     it('isPrimarySddAgent', () => {
       expect(isPrimarySddAgent('sdd-test')).toBe(true);
+      expect(isPrimarySddAgent('gentle-orchestrator')).toBe(true);
       expect(isPrimarySddAgent('sdd-test-fallback')).toBe(false);
       expect(isPrimarySddAgent('other-test')).toBe(false);
     });
@@ -95,6 +97,7 @@ describe('utils logic', () => {
     it('isFallbackEligibleSddAgent', () => {
       expect(isFallbackEligibleSddAgent('sdd-test')).toBe(true);
       expect(isFallbackEligibleSddAgent('sdd-orchestrator')).toBe(false);
+      expect(isFallbackEligibleSddAgent('gentle-orchestrator')).toBe(false);
       expect(isFallbackEligibleSddAgent('sdd-test-fallback')).toBe(false);
       expect(isFallbackEligibleSddAgent('other-test')).toBe(false);
     });
@@ -208,6 +211,17 @@ describe('utils logic', () => {
         agent: {
           'other-agent': { model: 'openai/gpt-3.5' },
           'sdd-agent': { model: 'openai/gpt-4' }
+        }
+      });
+      const result = parseActiveProfileFromRaw(raw, mockApi);
+      expect(result?.modelId).toBe('openai/gpt-4');
+    });
+
+    it('should keep gentle-orchestrator model from migrated profile payloads', () => {
+      const raw = JSON.stringify({
+        agent: {
+          'other-agent': { model: 'openai/gpt-3.5' },
+          'gentle-orchestrator': { model: 'openai/gpt-4' }
         }
       });
       const result = parseActiveProfileFromRaw(raw, mockApi);

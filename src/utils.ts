@@ -9,6 +9,10 @@
  */
 
 import { ActiveProfileState } from "./types";
+import { getOrchestratorPolicy } from "./orchestrator";
+
+const MANAGED_SDD_AGENT_EXCEPTIONS = new Set(["gentle-orchestrator"]);
+const FALLBACK_INELIGIBLE_AGENTS = new Set(["sdd-orchestrator", "gentle-orchestrator"]);
 
 /**
  * Formats a token count into a human-readable context string
@@ -55,7 +59,7 @@ export function truncateText(value: string, max = 120): string {
  * @returns True if the agent name starts with "sdd-"
  */
 export function isManagedSddAgent(agentName: string): boolean {
-  return agentName.startsWith("sdd-");
+  return agentName.startsWith("sdd-") || MANAGED_SDD_AGENT_EXCEPTIONS.has(agentName);
 }
 
 /**
@@ -77,7 +81,7 @@ export function isPrimarySddAgent(agentName: string): boolean {
  * (all sdd-* except orchestrator and existing fallbacks)
  */
 export function isFallbackEligibleSddAgent(agentName: string): boolean {
-  return isPrimarySddAgent(agentName) && agentName !== "sdd-orchestrator";
+  return isPrimarySddAgent(agentName) && !FALLBACK_INELIGIBLE_AGENTS.has(agentName);
 }
 
 /**
@@ -168,7 +172,8 @@ export function resolveSessionActiveModel(api: any, sessionId?: string): ActiveP
   }
 
   // 3. If NO messages at all, use the default agent from config or orchestrator
-  const defaultAgent = api.state.config?.default_agent || "sdd-orchestrator";
+  const policy = getOrchestratorPolicy(Object.keys(api.state.config?.agent || {}), api.state.config?.default_agent);
+  const defaultAgent = api.state.config?.default_agent || policy.canonicalName;
   return resolveAgentModelState(api, defaultAgent);
 }
 
@@ -188,8 +193,9 @@ export function parseActiveProfileFromRaw(raw: string, api: any): ActiveProfileS
     if (agentNames.length === 0) return null;
 
     // Strategy: Find the orchestrator first, then any managed SDD agent, or fallback to the first available agent
+    const policy = getOrchestratorPolicy(agentNames, config.default_agent);
     const firstAgent =
-      agentNames.find((name) => name === "sdd-orchestrator" && agentConfigs[name]?.model) ||
+      agentNames.find((name) => name === policy.canonicalName && agentConfigs[name]?.model) ||
       agentNames.find((name) => isManagedSddAgent(name) && agentConfigs[name]?.model) ||
       agentNames.find((name) => agentConfigs[name]?.model) ||
       agentNames[0];

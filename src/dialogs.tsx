@@ -46,6 +46,50 @@ import {
 } from "./profiles";
 import { deleteProjectMemory, listProjectMemories } from "./memories";
 import { setActiveProfile } from "./state";
+import { canonicalizeProfileModels, getOrchestratorPolicy, type OrchestratorPolicy } from "./orchestrator";
+
+export function resolveRuntimeOrchestratorPolicy(config: any): OrchestratorPolicy {
+  return getOrchestratorPolicy(
+    Object.keys(config?.agent || {}),
+    config?.default_agent
+  );
+}
+
+export function buildProfileAgentRows(
+  sddAgentNames: string[],
+  profileData: any,
+  policy: OrchestratorPolicy
+): Array<{ title: string; value: string; modelId?: string }> {
+  const models = canonicalizeProfileModels(profileData?.models || {}, policy);
+  const canonicalNames = Array.from(new Set([...sddAgentNames, policy.canonicalName]));
+  return canonicalNames
+    .filter((name) => name !== "sdd-orchestrator" || policy.canonicalName === "sdd-orchestrator")
+    .filter((name) => name !== "gentle-orchestrator" || policy.canonicalName === "gentle-orchestrator")
+    .map((name) => ({ title: name, value: `model:${name}`, modelId: models[name] }));
+}
+
+export function buildProfileDetailAgentSections(
+  config: any,
+  profileData: any
+): {
+  sddAgentNames: string[];
+  sddAgents: Array<[string, string | undefined]>;
+  fallbackAgents: Array<[string, string | undefined]>;
+  policy: OrchestratorPolicy;
+} {
+  const sddAgentNames = Object.keys(config?.agent || {})
+    .filter(isPrimarySddAgent)
+    .sort();
+  const policy = resolveRuntimeOrchestratorPolicy(config);
+  const sddAgents = buildProfileAgentRows(sddAgentNames, profileData, policy)
+    .map((row) => [row.title, row.modelId] as [string, string | undefined]);
+  const fallbackModelMap = profileData?.fallback || {};
+  const fallbackAgents = sddAgentNames
+    .filter((name) => isFallbackEligibleSddAgent(name))
+    .map((name) => [name, fallbackModelMap[name]] as [string, string | undefined]);
+
+  return { sddAgentNames, sddAgents, fallbackAgents, policy };
+}
 
 /**
  * Displays a detailed view of a specific memory observation
@@ -412,16 +456,7 @@ export function showProfileDetail(api: any, profileOpt: any) {
   try {
     const profilePath = path.join(profilesDir, profileOpt.value);
     const profileData = readProfileData(profilePath);
-    const configAgents = api.state.config?.agent || {};
-    const sddAgentNames = Object.keys(configAgents)
-      .filter(isPrimarySddAgent)
-      .sort();
-
-    const sddAgents = sddAgentNames.map((name) => [name, profileData.models?.[name]] as [string, string | undefined]);
-    const fallbackModelMap = profileData.fallback || {};
-    const fallbackAgents = sddAgentNames
-      .filter((name) => isFallbackEligibleSddAgent(name))
-      .map((name) => [name, fallbackModelMap[name]] as [string, string | undefined]);
+    const { sddAgents, fallbackAgents } = buildProfileDetailAgentSections(api.state.config, profileData);
 
     api.ui.dialog.replace(() => (
       <api.ui.DialogSelect
@@ -678,7 +713,8 @@ function updateBulkProfilePhases(api: any, profileOpt: any, fullModelId: string,
 
   try {
     const primarySddAgentNames = Object.keys(api.state.config?.agent || {}).filter(isPrimarySddAgent);
-    const { assignment } = updateProfileWithBulkPhaseAssignment(profilePath, primarySddAgentNames, fullModelId, action.operation);
+    const runtimePolicy = resolveRuntimeOrchestratorPolicy(api.state.config);
+    const { assignment } = updateProfileWithBulkPhaseAssignment(profilePath, primarySddAgentNames, fullModelId, action.operation, runtimePolicy);
 
     const totalAssigned = assignment.modelsAssigned + assignment.fallbackAssigned;
     api.ui.toast({
@@ -857,10 +893,11 @@ function updateAgentModel(
 ) {
   const { profilesDir } = resolvePaths();
   const profilePath = path.join(profilesDir, profileOpt.value);
+  const runtimePolicy = resolveRuntimeOrchestratorPolicy(api.state.config);
 
   try {
     if (mode === "fallback") {
-      const result = updateProfilePhaseModel(profilePath, agentName, "fallback", fullModelId);
+      const result = updateProfilePhaseModel(profilePath, agentName, "fallback", fullModelId, runtimePolicy);
       api.ui.toast({
         title: result.changed ? "Updated" : "No Changes",
         message: result.changed
@@ -869,7 +906,7 @@ function updateAgentModel(
         variant: result.changed ? "success" : "warning",
       });
     } else {
-      const result = updateProfilePhaseModel(profilePath, agentName, "primary", fullModelId);
+      const result = updateProfilePhaseModel(profilePath, agentName, "primary", fullModelId, runtimePolicy);
       api.ui.toast({
         title: result.changed ? "Updated" : "No Changes",
         message: result.changed

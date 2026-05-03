@@ -1,12 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getOrchestratorPolicy } from "../src/orchestrator.ts";
 
 // Mocking bits if needed, but here we test pure logic functions
 // Since profiles.ts uses fs directly in some read/write functions, 
 // we'll focus on testing the logic by providing data to the functions that accept objects.
 
 function isFallbackEligibleSddAgent(name: string): boolean {
-  return name.startsWith("sdd-") && name !== "sdd-orchestrator" && !name.endsWith("-fallback");
+  const policy = getOrchestratorPolicy([name]);
+  return name.startsWith("sdd-") && name !== policy.canonicalName && !name.endsWith("-fallback");
 }
 
 function normalizeForFallbackCompare(agentConfig: any): any {

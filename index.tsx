@@ -17,6 +17,8 @@ import { ActiveModelBadge } from "./components";
 import { activeProfile, setActiveProfile } from "./src/state";
 import { resolvePaths } from "./src/config";
 import { parseActiveProfileFromRaw, resolveSessionActiveModel } from "./src/utils";
+import { getOrchestratorPolicy } from "./src/orchestrator";
+import { migrateProfilesForRuntimePolicy } from "./src/profiles";
 import {
   showProfilesMenu,
   showProfileList,
@@ -71,6 +73,12 @@ const id = "sdd-model-select";
 const tui: TuiPlugin = async (api) => {
   // Initialize dialog callbacks
   initializeDialogs();
+
+  const runtimePolicy = getOrchestratorPolicy(
+    Object.keys(api?.state?.config?.agent || {}),
+    api?.state?.config?.default_agent
+  );
+  migrateProfilesForRuntimePolicy(runtimePolicy);
 
   // Load and set the active profile in the global state
   const profile = readActiveProfile(api);

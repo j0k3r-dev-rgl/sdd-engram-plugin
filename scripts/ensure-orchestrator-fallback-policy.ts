@@ -43,6 +43,12 @@ export const FALLBACK_POLICY_BLOCK = [
   MARKER_END,
 ].join("\n");
 
+export function resolveCanonicalPromptAgentName(config: any): "sdd-orchestrator" | "gentle-orchestrator" {
+  const agents = config?.agent || {};
+  if (agents["gentle-orchestrator"]) return "gentle-orchestrator";
+  return "sdd-orchestrator";
+}
+
 type CliArgs = {
   configPath: string;
   check: boolean;
@@ -132,10 +138,11 @@ function main(): void {
   }
 
   const config = readJson(args.configPath);
-  const orchestratorPrompt = config?.agent?.["sdd-orchestrator"]?.prompt;
+  const orchestratorAgent = resolveCanonicalPromptAgentName(config);
+  const orchestratorPrompt = config?.agent?.[orchestratorAgent]?.prompt;
 
   if (typeof orchestratorPrompt !== "string" || !orchestratorPrompt.trim()) {
-    throw new Error("agent.sdd-orchestrator.prompt is missing or not a string");
+    throw new Error(`agent.${orchestratorAgent}.prompt is missing or not a string`);
   }
 
   if (isFilePromptReference(orchestratorPrompt)) {
@@ -173,7 +180,7 @@ function main(): void {
     return;
   }
 
-  config.agent["sdd-orchestrator"].prompt = updated;
+  config.agent[orchestratorAgent].prompt = updated;
   writeJson(args.configPath, config);
   console.log(`[updated] Injected fallback policy into inline prompt in: ${args.configPath}`);
 }

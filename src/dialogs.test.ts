@@ -1,8 +1,82 @@
 import { describe, expect, it } from 'vitest';
 import { BULK_ASSIGNMENT_MODE, BULK_ASSIGNMENT_TARGET, PROFILE_VERSION_SOURCE } from './types';
 import { buildBulkProfileActionOptions, buildProfileVersionListOption, formatProfileVersionPreviewLines } from './dialogs';
+import { buildProfileAgentRows } from './dialogs';
+import { buildProfileDetailAgentSections, resolveRuntimeOrchestratorPolicy } from './dialogs';
+import { getOrchestratorPolicy } from './orchestrator';
 
 describe('dialog pure builders', () => {
+  it('shows canonical orchestrator row for updated runtime', () => {
+    const policy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
+    const rows = buildProfileAgentRows(
+      ['sdd-orchestrator', 'gentle-orchestrator', 'sdd-init'],
+      {
+        models: {
+          'sdd-orchestrator': 'legacy/model',
+          'gentle-orchestrator': 'new/model',
+          'sdd-init': 'phase/model',
+        },
+      },
+      policy,
+    );
+
+    const titles = rows.map((row) => row.title);
+    expect(titles).toContain('gentle-orchestrator');
+    expect(titles).not.toContain('sdd-orchestrator');
+  });
+
+  it('derives updated-runtime policy from api.state.config and builds canonical detail rows', () => {
+    const apiConfig = {
+      default_agent: 'gentle-orchestrator',
+      agent: {
+        'sdd-init': { model: 'phase/model' },
+        'sdd-orchestrator': { model: 'legacy/model' },
+        'gentle-orchestrator': { model: 'new/model' },
+      },
+    };
+
+    const policy = resolveRuntimeOrchestratorPolicy(apiConfig as any);
+    const sections = buildProfileDetailAgentSections(apiConfig as any, {
+      models: {
+        'sdd-orchestrator': 'legacy/model',
+        'gentle-orchestrator': 'new/model',
+        'sdd-init': 'phase/model',
+      },
+      fallback: { 'sdd-init': 'fallback/model' },
+    });
+
+    expect(policy.canonicalName).toBe('gentle-orchestrator');
+    expect(sections.sddAgents.map(([name]) => name)).toContain('gentle-orchestrator');
+    expect(sections.sddAgents.map(([name]) => name)).not.toContain('sdd-orchestrator');
+    expect(sections.sddAgents.find(([name]) => name === 'gentle-orchestrator')?.[1]).toBe('new/model');
+    expect(sections.fallbackAgents).toEqual([
+      ['sdd-init', 'fallback/model'],
+    ]);
+  });
+
+  it('derives legacy policy from api.state.config and keeps legacy orchestrator in detail rows', () => {
+    const apiConfig = {
+      default_agent: 'sdd-orchestrator',
+      agent: {
+        'sdd-init': { model: 'phase/model' },
+        'sdd-orchestrator': { model: 'legacy/model' },
+      },
+    };
+
+    const policy = resolveRuntimeOrchestratorPolicy(apiConfig as any);
+    const sections = buildProfileDetailAgentSections(apiConfig as any, {
+      models: {
+        'sdd-orchestrator': 'legacy/model',
+        'sdd-init': 'phase/model',
+      },
+      fallback: {},
+    });
+
+    expect(policy.canonicalName).toBe('sdd-orchestrator');
+    expect(sections.sddAgents.map(([name]) => name)).toContain('sdd-orchestrator');
+    expect(sections.sddAgents.map(([name]) => name)).not.toContain('gentle-orchestrator');
+  });
+
   it('builds fill-only and override bulk profile action labels mapped to target and mode', () => {
     const options = buildBulkProfileActionOptions();
 

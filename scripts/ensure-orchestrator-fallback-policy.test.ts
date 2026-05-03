@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { 
+import {
   resolveDefaultConfigPath, 
   isFilePromptReference, 
   resolvePromptFilePath, 
   upsertFallbackPolicy,
   MARKER_START,
   MARKER_END,
-  FALLBACK_POLICY_BLOCK
+  FALLBACK_POLICY_BLOCK,
+  resolveCanonicalPromptAgentName
 } from './ensure-orchestrator-fallback-policy';
 
 vi.mock('node:os');
@@ -119,6 +120,29 @@ describe('ensure-orchestrator-fallback-policy logic', () => {
         const content = `No newline`;
         const { updated } = upsertFallbackPolicy(content);
         expect(updated).toBe(`No newline\n\n${FALLBACK_POLICY_BLOCK}\n`);
+    });
+  });
+
+  describe('resolveCanonicalPromptAgentName', () => {
+    it('prefers gentle-orchestrator when present', () => {
+      const config = {
+        agent: {
+          'sdd-orchestrator': { prompt: 'legacy' },
+          'gentle-orchestrator': { prompt: 'updated' },
+        },
+      };
+
+      expect(resolveCanonicalPromptAgentName(config)).toBe('gentle-orchestrator');
+    });
+
+    it('falls back to sdd-orchestrator for legacy configs', () => {
+      const config = {
+        agent: {
+          'sdd-orchestrator': { prompt: 'legacy' },
+        },
+      };
+
+      expect(resolveCanonicalPromptAgentName(config)).toBe('sdd-orchestrator');
     });
   });
 });

@@ -9,6 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { getOrchestratorPolicy } from "../src/orchestrator.ts";
 
 type TestResult = { name: string; ok: boolean; details?: string };
 
@@ -102,7 +103,8 @@ function isManagedSddAgent(name: string): boolean {
 }
 
 function isFallbackEligibleSddAgent(name: string): boolean {
-  return isManagedSddAgent(name) && name !== "sdd-orchestrator" && !name.endsWith("-fallback");
+  const policy = getOrchestratorPolicy([name]);
+  return isManagedSddAgent(name) && name !== policy.canonicalName && !name.endsWith("-fallback");
 }
 
 function parseProfileModels(raw: any): Record<string, string> {

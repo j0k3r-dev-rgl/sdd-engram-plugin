@@ -36,6 +36,13 @@ import {
   isSddFallbackAgent,
 } from "./utils";
 import { resolvePaths, ensureProfilesDir } from "./config";
+import {
+  canonicalizeProfileModels,
+  getOrchestratorPolicy,
+  LEGACY_ORCHESTRATOR,
+  UPDATED_ORCHESTRATOR,
+  type OrchestratorPolicy,
+} from "./orchestrator";
 
 const PROFILE_VERSION_FORMAT = 1;
 const DEFAULT_PROFILE_VERSION_RETENTION = 60;
@@ -116,14 +123,15 @@ export function extractSddFallbackModels(raw: any): ProfileFallbackModels {
   );
 }
 
-function normalizeProfileModels(models: unknown): ProfileModels {
+function normalizeProfileModels(models: unknown, policy?: OrchestratorPolicy): ProfileModels {
   if (!models || typeof models !== "object" || Array.isArray(models)) return {};
 
-  return Object.fromEntries(
+  const normalized = Object.fromEntries(
     Object.entries(models)
       .filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value === "string" && value.trim())
       .map(([name, value]: any) => [name, value.trim()])
   );
+  return policy ? canonicalizeProfileModels(normalized, policy) : normalized;
 }
 
 function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
@@ -138,8 +146,8 @@ function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
   );
 }
 
-function normalizePersistedProfileData(profile: ProfileData): ProfileData {
-  const models = normalizeProfileModels(profile?.models);
+function normalizePersistedProfileData(profile: ProfileData, policy?: OrchestratorPolicy): ProfileData {
+  const models = normalizeProfileModels(profile?.models, policy);
   const fallback = extractSddFallbackModels({ fallback: profile?.fallback || {} });
 
   return {
@@ -165,17 +173,18 @@ export function readProfileModels(profilePath: string): ProfileModels {
   }
 
   // New profile format: { models: { ... }, fallback: { ... } }
+  const policy = getOrchestratorPolicy(Object.keys(raw?.agent || raw?.models || raw || {}));
   if (raw && typeof raw === "object" && !Array.isArray(raw) && raw.models && typeof raw.models === "object") {
-    return Object.fromEntries(
+    return canonicalizeProfileModels(Object.fromEntries(
       Object.entries(raw.models)
         .filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value === "string" && value.trim())
         .map(([name, value]: any) => [name, value])
-    );
+    ), policy);
   }
 
   // Legacy profile format: { "sdd-init": "provider/model", ... }
   if (raw && typeof raw === "object" && !Array.isArray(raw) && !raw.agent && !raw.models) {
-    return Object.fromEntries(
+    return canonicalizeProfileModels(Object.fromEntries(
       Object.entries(raw)
         .filter(
           ([name, value]: any) =>
@@ -183,11 +192,11 @@ export function readProfileModels(profilePath: string): ProfileModels {
             ((typeof value === "string" && value) || (typeof value?.model === "string" && value.model))
         )
         .map(([name, value]: any) => [name, typeof value === "string" ? value : value.model])
-    );
+    ), policy);
   }
 
   // Config format: { agent: { ... } }
-  return extractSddAgentModels(raw);
+  return canonicalizeProfileModels(extractSddAgentModels(raw), policy);
 }
 
 /**
@@ -244,9 +253,10 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
   }
 
   const fallback = extractSddFallbackModels(raw);
+  const policy = getOrchestratorPolicy(Object.keys(raw?.agent || raw?.models || raw || {}));
   return {
     ...extractPersistedProfileExtras(raw),
-    models,
+    models: canonicalizeProfileModels(models, policy),
     ...(Object.keys(fallback).length > 0
       ? { fallback }
       : {}),
@@ -256,8 +266,8 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
 /**
  * Persists full profile data while preserving the existing profile payload shape.
  */
-export function writeProfileData(profilePath: string, profile: ProfileData): void {
-  atomicWriteFile(profilePath, JSON.stringify(normalizePersistedProfileData(profile), null, 2));
+export function writeProfileData(profilePath: string, profile: ProfileData, policy?: OrchestratorPolicy): void {
+  atomicWriteFile(profilePath, JSON.stringify(normalizePersistedProfileData(profile, policy), null, 2));
 }
 
 function normalizePrimarySddAgentNames(primarySddAgentNames: string[]): string[] {
@@ -718,7 +728,8 @@ export function updateProfileWithBulkPhaseAssignment(
   profilePath: string,
   primarySddAgentNames: string[],
   modelId: string,
-  operation: BulkAssignmentOperation
+  operation: BulkAssignmentOperation,
+  runtimePolicy?: OrchestratorPolicy
 ): { assignment: BulkProfilePhaseAssignmentResult; version?: ProfileVersion } {
   const beforeRaw = fs.readFileSync(profilePath, "utf-8").toString();
   const profileData = readProfileDataFromRaw(beforeRaw);
@@ -732,7 +743,8 @@ export function updateProfileWithBulkPhaseAssignment(
     DEFAULT_PROFILE_VERSION_RETENTION,
     beforeRaw
   );
-  writeProfileData(profilePath, assignment.profile);
+  const policy = runtimePolicy ?? getOrchestratorPolicy(primarySddAgentNames);
+  writeProfileData(profilePath, assignment.profile, policy);
   return { assignment, version };
 }
 
@@ -740,7 +752,8 @@ export function updateProfilePhaseModel(
   profilePath: string,
   agentName: string,
   field: ProfilePhaseModelField,
-  modelId: string
+  modelId: string,
+  runtimePolicy?: OrchestratorPolicy
 ): UpdateProfilePhaseModelResult {
   const trimmedModelId = modelId?.trim();
   if (!trimmedModelId) {
@@ -781,7 +794,8 @@ export function updateProfilePhaseModel(
     changedPhases: 1,
   };
   const version = createProfileVersion(profilePath, operation, buildPhaseOperationSummary(agentName, field, trimmedModelId));
-  writeProfileData(profilePath, nextProfile);
+  const policy = runtimePolicy ?? getOrchestratorPolicy(Object.keys(profileData.models || {}));
+  writeProfileData(profilePath, nextProfile, policy);
   return { profile: nextProfile, changed: true, version };
 }
 
@@ -827,19 +841,26 @@ export function writeProfileFallbackModels(profilePath: string, fallback: Profil
 export function detectActiveProfileFile(files: string[], api: any): string | undefined {
   const activeAgents = (api.state.config as any)?.agent || {};
   const { profilesDir } = resolvePaths();
-  const activeSddAgents = Object.fromEntries(
+  const policy = getOrchestratorPolicy(Object.keys(activeAgents), api.state.config?.default_agent);
+  const activeSddAgents = canonicalizeProfileModels(Object.fromEntries(
     Object.entries(activeAgents)
       .filter(([name, value]: any) => isPrimarySddAgent(name) && typeof value?.model === "string" && value.model)
       .map(([name, value]: any) => [name, value.model])
+  ), policy);
+  const activeFallbackModels: ProfileFallbackModels = Object.fromEntries(
+    Object.entries(activeAgents)
+      .filter(([name, value]: any) => isSddFallbackAgent(name) && typeof value?.model === "string" && value.model)
+      .map(([name, value]: any) => [name.replace(/-fallback$/, ""), value.model])
   );
+
+  const primaryMatches: Array<{ file: string; fallback: ProfileFallbackModels }> = [];
 
   for (const file of files) {
     try {
-      const profileModels = readProfileModels(path.join(profilesDir, file));
+      const profilePath = path.join(profilesDir, file);
+      const profileModels = canonicalizeProfileModels(readProfileModels(profilePath), policy);
       const keys = Object.keys(profileModels);
       if (keys.length === 0) continue;
-
-      if (keys.length !== Object.keys(activeSddAgents).length) continue;
 
       const allMatch = keys.every((agentName) => {
         const profileModel = profileModels[agentName];
@@ -847,9 +868,38 @@ export function detectActiveProfileFile(files: string[], api: any): string | und
         return profileModel && profileModel === activeModel;
       });
 
-      if (allMatch) return file;
+      if (!allMatch) continue;
+
+      primaryMatches.push({
+        file,
+        fallback: readProfileFallbackModels(profilePath),
+      });
     } catch (e) {}
   }
+
+  if (primaryMatches.length === 1) {
+    return primaryMatches[0].file;
+  }
+
+  if (primaryMatches.length <= 1) {
+    return undefined;
+  }
+
+  const fallbackMatches = primaryMatches.filter(({ fallback }) => {
+    const fallbackKeys = Object.keys(fallback || {});
+    if (fallbackKeys.length === 0) return false;
+
+    return fallbackKeys.every((agentName) => {
+      const profileFallback = fallback[agentName];
+      const activeFallback = activeFallbackModels[agentName];
+      return profileFallback && profileFallback === activeFallback;
+    });
+  });
+
+  if (fallbackMatches.length === 1) {
+    return fallbackMatches[0].file;
+  }
+
   return undefined;
 }
 
@@ -954,7 +1004,8 @@ function applyProfileModelsToConfig(currentConfig: any, profileModels: ProfileMo
   const nextConfig = JSON.parse(JSON.stringify(currentConfig || {}));
   if (!nextConfig.agent) nextConfig.agent = {};
 
-  for (const [agentName, modelId] of Object.entries(profileModels)) {
+  const policy = getOrchestratorPolicy(Object.keys(nextConfig.agent), currentConfig?.default_agent);
+  for (const [agentName, modelId] of Object.entries(canonicalizeProfileModels(profileModels || {}, policy))) {
     nextConfig.agent[agentName] = {
       ...(nextConfig.agent[agentName] || {}),
       model: modelId,
@@ -1012,7 +1063,8 @@ export async function activateProfileFile(api: any, profilePath: string, profile
       currentConfig = globalConfigResult?.data || {};
     }
 
-    const nextConfigWithModels = applyProfileModelsToConfig(currentConfig, profileData.models || {});
+    const policy = getOrchestratorPolicy(Object.keys(currentConfig?.agent || {}), currentConfig?.default_agent);
+    const nextConfigWithModels = applyProfileModelsToConfig(currentConfig, canonicalizeProfileModels(profileData.models || {}, policy));
     const fallbackValidationErrors = validateProfileFallbackMapping(nextConfigWithModels, profileData.fallback || {});
     if (fallbackValidationErrors.length > 0) {
       throw new Error(fallbackValidationErrors.join(" | "));
@@ -1051,6 +1103,58 @@ export function listProfileFiles(): string[] {
   } catch {
     return [];
   }
+}
+
+function hasLegacyOrchestratorModel(payload: any): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+
+  if (typeof payload?.models?.[LEGACY_ORCHESTRATOR] === "string" && payload.models[LEGACY_ORCHESTRATOR].trim()) {
+    return true;
+  }
+
+  if (typeof payload?.agent?.[LEGACY_ORCHESTRATOR]?.model === "string" && payload.agent[LEGACY_ORCHESTRATOR].model.trim()) {
+    return true;
+  }
+
+  if (typeof payload?.[LEGACY_ORCHESTRATOR] === "string" && payload[LEGACY_ORCHESTRATOR].trim()) {
+    return true;
+  }
+
+  if (typeof payload?.[LEGACY_ORCHESTRATOR]?.model === "string" && payload[LEGACY_ORCHESTRATOR].model.trim()) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Eagerly migrates on-disk profile payloads when runtime policy enables orchestrator migration.
+ */
+export function migrateProfilesForRuntimePolicy(policy: OrchestratorPolicy): string[] {
+  if (!policy?.migrationEnabled || policy.canonicalName !== UPDATED_ORCHESTRATOR) {
+    return [];
+  }
+
+  const { profilesDir } = resolvePaths();
+  const migrated: string[] = [];
+  const files = listProfileFiles();
+
+  for (const file of files) {
+    const profilePath = path.join(profilesDir, file);
+
+    try {
+      const raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+      if (!hasLegacyOrchestratorModel(raw)) continue;
+
+      const profileData = readProfileDataFromRaw(JSON.stringify(raw));
+      writeProfileData(profilePath, profileData, policy);
+      migrated.push(file);
+    } catch {
+      continue;
+    }
+  }
+
+  return migrated;
 }
 
 /**

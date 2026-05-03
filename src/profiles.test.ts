@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import type { ProfileData } from './types';
 import { BULK_ASSIGNMENT_MODE, BULK_ASSIGNMENT_TARGET, PROFILE_VERSION_SOURCE } from './types';
-import { formatProfileVersionPreviewLines } from './dialogs';
+import { formatProfileVersionPreviewLines, resolveRuntimeOrchestratorPolicy } from './dialogs';
 import {
   extractSddAgentModels, 
   extractSddFallbackModels, 
@@ -24,11 +24,14 @@ import {
   readProfileVersion,
   restoreProfileVersion,
   updateProfileWithBulkPhaseAssignment,
-  updateProfilePhaseModel,
-  activateProfileFile,
-  deleteProfileFile,
-  renameProfileFile
+   updateProfilePhaseModel,
+   detectActiveProfileFile,
+   activateProfileFile,
+   deleteProfileFile,
+   renameProfileFile,
+   migrateProfilesForRuntimePolicy
 } from './profiles';
+import { getOrchestratorPolicy } from './orchestrator';
 
 vi.mock('node:fs');
 vi.mock('./config', () => ({
@@ -150,6 +153,22 @@ describe('profiles logic', () => {
       expect(models).toEqual({ 'sdd-init': 'gpt-4' });
     });
 
+    it('preserves gentle-orchestrator when reading migrated profile payloads', () => {
+      const mockContent = JSON.stringify({
+        models: {
+          'gentle-orchestrator': 'openai/gpt-5',
+          'sdd-init': 'openai/gpt-4'
+        }
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(mockContent);
+
+      const models = readProfileModels('/mock/profiles/migrated.json');
+      expect(models).toEqual({
+        'gentle-orchestrator': 'openai/gpt-5',
+        'sdd-init': 'openai/gpt-4'
+      });
+    });
+
     it('returns empty models for corrupted json payloads instead of throwing', () => {
       vi.mocked(fs.readFileSync).mockReturnValue('{invalid json');
 
@@ -158,6 +177,21 @@ describe('profiles logic', () => {
   });
 
   describe('readProfileData and writeProfileData', () => {
+    it('migrates legacy orchestrator to gentle-orchestrator on write in updated runtime', () => {
+      const policy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
+
+      writeProfileData('/mock/profiles/compatible.json', {
+        models: {
+          'sdd-orchestrator': 'legacy/model',
+          'sdd-init': 'phase/model',
+        },
+      } as any, policy);
+
+      const persisted = JSON.parse(String(vi.mocked(fs.writeFileSync).mock.calls[0]?.[1]));
+      expect(persisted.models['gentle-orchestrator']).toBe('legacy/model');
+      expect(persisted.models['sdd-orchestrator']).toBeUndefined();
+    });
+
     it('preserves unrelated profile fields when reading and writing full profile data', () => {
       const mockContent = JSON.stringify({
         models: { 'sdd-init': 'gpt-4' },
@@ -1035,6 +1069,37 @@ describe('profiles logic', () => {
       expect(fs.readFileSync).toHaveBeenCalledTimes(1);
     });
 
+    it('uses runtime policy for bulk updates so updated runtimes persist gentle-orchestrator only', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+        models: {
+          'sdd-orchestrator': 'legacy/orchestrator',
+          'sdd-init': '',
+        },
+        fallback: {},
+      }));
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      const updatedPolicy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
+      updateProfileWithBulkPhaseAssignment(
+        '/mock/profiles/team.json',
+        ['sdd-init'],
+        'provider/model',
+        operation,
+        updatedPolicy as any,
+      );
+
+      const profileWrite = writes.find((write) => /^\/mock\/profiles\/team\.json\.tmp-[0-9a-f]{8}$/.test(write.filePath));
+      expect(profileWrite).toBeDefined();
+      const persistedProfile = JSON.parse(profileWrite!.content);
+      expect(persistedProfile.models['gentle-orchestrator']).toBe('legacy/orchestrator');
+      expect(persistedProfile.models['sdd-orchestrator']).toBeUndefined();
+    });
+
     it('creates a phase source version before mutating a single primary phase model', () => {
       const writes: string[] = [];
       vi.mocked(fs.existsSync).mockReturnValue(false);
@@ -1097,6 +1162,37 @@ describe('profiles logic', () => {
       expect(persistedProfile).not.toHaveProperty('operation');
       expect(persistedProfile).not.toHaveProperty('operationSummary');
       expect(persistedProfile).not.toHaveProperty('beforeRaw');
+    });
+
+    it('uses UI-derived runtime policy for detail edits so updated runtimes persist gentle-orchestrator only', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+        models: {
+          'sdd-design': 'old/model',
+          'sdd-orchestrator': 'legacy/orchestrator'
+        }
+      }));
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      const updatedPolicy = resolveRuntimeOrchestratorPolicy({
+        default_agent: 'gentle-orchestrator',
+        agent: {
+          'gentle-orchestrator': { model: 'runtime/model' },
+          'sdd-design': { model: 'design/model' },
+        },
+      } as any);
+      updateProfilePhaseModel('/mock/profiles/team.json', 'sdd-design', 'primary', 'new/model', updatedPolicy as any);
+
+      const profileWrite = writes.find((write) => /^\/mock\/profiles\/team\.json\.tmp-[0-9a-f]{8}$/.test(write.filePath));
+      expect(profileWrite).toBeDefined();
+
+      const persistedProfile = JSON.parse(profileWrite!.content);
+      expect(persistedProfile.models['gentle-orchestrator']).toBe('legacy/orchestrator');
+      expect(persistedProfile.models['sdd-orchestrator']).toBeUndefined();
     });
 
     it('creates a phase source version before mutating a single fallback phase model', () => {
@@ -1439,6 +1535,333 @@ describe('profiles logic', () => {
   });
 
   describe('activateProfileFile', () => {
+    it('eagerly migrates profile files on updated runtime policy at startup', () => {
+      const writes: string[] = [];
+      vi.mocked(fs.readdirSync).mockReturnValue(['team.json'] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: {
+              'sdd-orchestrator': 'legacy/model',
+              'sdd-init': 'phase/model',
+            },
+          });
+        }
+        return '{}';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push(String(content));
+        return undefined as any;
+      });
+
+      const migrated = migrateProfilesForRuntimePolicy(getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']));
+
+      expect(migrated).toEqual(['team.json']);
+      expect(writes).toHaveLength(1);
+      const persisted = JSON.parse(writes[0]!);
+      expect(persisted.models['gentle-orchestrator']).toBe('legacy/model');
+      expect(persisted.models['sdd-orchestrator']).toBeUndefined();
+    });
+
+    it('does not migrate profile files when runtime policy is legacy', () => {
+      vi.mocked(fs.readdirSync).mockReturnValue(['team.json'] as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+        models: {
+          'sdd-orchestrator': 'legacy/model',
+          'sdd-init': 'phase/model',
+        },
+      }));
+
+      const migrated = migrateProfilesForRuntimePolicy(getOrchestratorPolicy(['sdd-orchestrator', 'sdd-init']));
+
+      expect(migrated).toEqual([]);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      expect(fs.renameSync).not.toHaveBeenCalled();
+    });
+
+    it('detects migrated profile as active after eager startup migration', () => {
+      let profileRaw = JSON.stringify({
+        models: {
+          'sdd-orchestrator': 'legacy/model',
+          'sdd-init': 'phase/model',
+        },
+      });
+      vi.mocked(fs.readdirSync).mockReturnValue(['team.json'] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') return profileRaw;
+        return '{}';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((_filePath: any, content: any) => {
+        profileRaw = String(content);
+        return undefined as any;
+      });
+
+      migrateProfilesForRuntimePolicy(getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']));
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'gentle-orchestrator',
+            agent: {
+              'gentle-orchestrator': { model: 'legacy/model' },
+              'sdd-init': { model: 'phase/model' },
+            },
+          },
+        },
+      } as any;
+
+      expect(detectActiveProfileFile(['team.json'], api)).toBe('team.json');
+    });
+
+    it('matches legacy active profile during list detection without creating updated key side effects', () => {
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/legacy.json') {
+          return JSON.stringify({ models: { 'sdd-orchestrator': 'legacy/model', 'sdd-init': 'phase/model' } });
+        }
+        return '{}';
+      });
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'sdd-orchestrator',
+            agent: {
+              'sdd-orchestrator': { model: 'legacy/model' },
+              'sdd-init': { model: 'phase/model' },
+            },
+          },
+        },
+      } as any;
+
+      const active = detectActiveProfileFile(['legacy.json'], api);
+
+      expect(active).toBe('legacy.json');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      expect(fs.renameSync).not.toHaveBeenCalled();
+    });
+
+    it('marks profile active when profile primaries are a subset of active config models', () => {
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/subset.json') {
+          return JSON.stringify({ models: { 'sdd-init': 'phase/model' } });
+        }
+        return '{}';
+      });
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'sdd-orchestrator',
+            agent: {
+              'sdd-orchestrator': { model: 'runtime/model' },
+              'sdd-init': { model: 'phase/model' },
+              'sdd-apply': { model: 'extra/model' },
+            },
+          },
+        },
+      } as any;
+
+      expect(detectActiveProfileFile(['subset.json'], api)).toBe('subset.json');
+    });
+
+    it('does not require exact key-count equality when all declared profile primaries match', () => {
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({ models: { 'sdd-orchestrator': 'runtime/model', 'sdd-init': 'phase/model' } });
+        }
+        return '{}';
+      });
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'sdd-orchestrator',
+            agent: {
+              'sdd-orchestrator': { model: 'runtime/model' },
+              'sdd-init': { model: 'phase/model' },
+              'sdd-apply': { model: 'apply/model' },
+              'sdd-plan': { model: 'plan/model' },
+            },
+          },
+        },
+      } as any;
+
+      expect(detectActiveProfileFile(['team.json'], api)).toBe('team.json');
+    });
+
+    it('uses fallback model comparison as tie-breaker when primaries match multiple profiles', () => {
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/alpha.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'phase/model' },
+            fallback: { 'sdd-init': 'fallback/a' },
+          });
+        }
+        if (String(filePath) === '/mock/profiles/beta.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'phase/model' },
+            fallback: { 'sdd-init': 'fallback/b' },
+          });
+        }
+        return '{}';
+      });
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'sdd-orchestrator',
+            agent: {
+              'sdd-orchestrator': { model: 'runtime/model' },
+              'sdd-init': { model: 'phase/model' },
+              'sdd-init-fallback': { model: 'fallback/b' },
+            },
+          },
+        },
+      } as any;
+
+      expect(detectActiveProfileFile(['alpha.json', 'beta.json'], api)).toBe('beta.json');
+    });
+
+    it('returns undefined when tie remains unresolved after fallback comparison', () => {
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/alpha.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'phase/model' },
+            fallback: { 'sdd-init': 'fallback/shared' },
+          });
+        }
+        if (String(filePath) === '/mock/profiles/beta.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'phase/model' },
+            fallback: { 'sdd-init': 'fallback/shared' },
+          });
+        }
+        return '{}';
+      });
+
+      const api = {
+        state: {
+          config: {
+            default_agent: 'sdd-orchestrator',
+            agent: {
+              'sdd-orchestrator': { model: 'runtime/model' },
+              'sdd-init': { model: 'phase/model' },
+              'sdd-init-fallback': { model: 'fallback/shared' },
+            },
+          },
+        },
+      } as any;
+
+      expect(detectActiveProfileFile(['alpha.json', 'beta.json'], api)).toBeUndefined();
+    });
+
+    it('keeps sdd-orchestrator during activation in legacy runtime and does not create gentle-orchestrator', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: {
+              'sdd-orchestrator': 'legacy/model',
+              'sdd-init': 'phase/model',
+            },
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-orchestrator',
+          agent: {
+            'sdd-orchestrator': { model: 'legacy/old' },
+            'sdd-init': { model: 'phase/old' },
+          },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-orchestrator']?.model).toBe('legacy/model');
+      expect(payload.agent['gentle-orchestrator']).toBeUndefined();
+    });
+
+    it('preserves canonical gentle-orchestrator across bulk update then activation in updated runtime', async () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      const bulkOperation = {
+        target: BULK_ASSIGNMENT_TARGET.BOTH,
+        mode: BULK_ASSIGNMENT_MODE.FILL_ONLY,
+      } as const;
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: {
+              'sdd-orchestrator': 'legacy/model',
+              'sdd-init': '',
+            },
+            fallback: {},
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'gentle-orchestrator',
+          agent: {
+            'gentle-orchestrator': { model: 'runtime/old' },
+            'sdd-init': { model: 'phase/old' },
+          },
+        });
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      const updatedPolicy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
+      updateProfileWithBulkPhaseAssignment(
+        '/mock/profiles/team.json',
+        ['sdd-init'],
+        'provider/model',
+        bulkOperation,
+        updatedPolicy as any,
+      );
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const profileWrite = writes.find((write) => /^\/mock\/profiles\/team\.json\.tmp-[0-9a-f]{8}$/.test(write.filePath));
+      expect(profileWrite).toBeDefined();
+      const persistedProfile = JSON.parse(profileWrite!.content);
+      expect(persistedProfile.models['gentle-orchestrator']).toBe('legacy/model');
+      expect(persistedProfile.models['sdd-orchestrator']).toBeUndefined();
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['gentle-orchestrator']?.model).toBe('legacy/model');
+      expect(payload.agent['sdd-orchestrator']).toBeUndefined();
+    });
+
     it('returns null and shows toast when on-disk global config JSON is invalid', async () => {
       vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
       vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {

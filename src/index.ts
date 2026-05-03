@@ -13,6 +13,7 @@ export * from "./config";
 export * from "./profiles";
 export * from "./memories";
 export * from "./state";
+export * from "./orchestrator";
 export {
   showProfilesMenu,
   showCreateProfile,
