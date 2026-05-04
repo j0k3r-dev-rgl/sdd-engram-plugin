@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.4.1...v1.4.2) (2026-05-04)
+
+
+### Bug Fixes
+
+* clear stale profile reasoning effort ([67b42a2](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/67b42a233646b57cc0d222386eae6a6c175a3ae1))
+
 ## [1.4.1](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.4.0...v1.4.1) (2026-05-04)
 
 
