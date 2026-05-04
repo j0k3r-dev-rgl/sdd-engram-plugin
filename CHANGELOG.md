@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.4.0...v1.4.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* preserve profile navigation and effort state ([21bae9c](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/21bae9c569de42a5a174aa5f7f19b131f2ae030a))
+
 # [1.4.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.5...v1.4.0) (2026-05-04)
 
 
