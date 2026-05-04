@@ -268,6 +268,44 @@ describe('profiles logic', () => {
       );
     });
 
+    it('preserves valid primary reasoning config and drops unsupported config entries', () => {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+        models: { 'sdd-init': 'gpt-4' },
+        configs: {
+          'sdd-init': { reasoningEffort: ' high ', unknown: 'ignored' },
+          'sdd-init-fallback': { reasoningEffort: 'low' },
+          random: { reasoningEffort: 'medium' }
+        }
+      }));
+
+      const profileData = readProfileData('/mock/profiles/compatible.json');
+      writeProfileData('/mock/profiles/compatible.json', profileData);
+
+      expect(profileData).toEqual({
+        models: { 'sdd-init': 'gpt-4' },
+        configs: { 'sdd-init': { reasoningEffort: 'high' } }
+      });
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/),
+        JSON.stringify({
+          models: { 'sdd-init': 'gpt-4' },
+          configs: { 'sdd-init': { reasoningEffort: 'high' } }
+        }, null, 2)
+      );
+    });
+
+    it('omits empty configs when writing profile data', () => {
+      writeProfileData('/mock/profiles/compatible.json', {
+        models: { 'sdd-init': 'gpt-4' },
+        configs: { 'sdd-init': { reasoningEffort: '   ' } }
+      } as any);
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/mock\/profiles\/compatible\.json\.tmp-[0-9a-f]{8}$/),
+        JSON.stringify({ models: { 'sdd-init': 'gpt-4' } }, null, 2)
+      );
+    });
+
     it('reads and parses profile json only once and degrades safely when corrupt', () => {
       vi.mocked(fs.readFileSync).mockReturnValue('{invalid json');
 
@@ -1068,6 +1106,50 @@ describe('profiles logic', () => {
         expect.stringMatching(/^\/mock\/profiles\/team\.json\.tmp-[0-9a-f]{8}$/),
         '/mock/profiles/team.json'
       );
+    });
+
+    it('restores snapshot configs and drops unsupported config keys', () => {
+      const writes: Array<{ filePath: string; content: string }> = [];
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath).includes('/profile-versions/team.json'));
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath).includes('/profile-versions/team.json/')) {
+          return JSON.stringify({
+            version: 1,
+            id: 'team.json/2026-04-26T10-00-00-000Z-a.json',
+            profileFile: 'team.json',
+            createdAt: '2026-04-26T10:00:00.000Z',
+            operation,
+            operationSummary: 'Bulk fill both',
+            beforeRaw: JSON.stringify({
+              models: { 'sdd-init': 'old/model' },
+              fallback: { 'sdd-init': 'old/fallback' },
+              configs: {
+                'sdd-init': { reasoningEffort: 'high' },
+                random: { reasoningEffort: 'low' },
+              }
+            }),
+            preview: {
+              models: { 'sdd-init': 'old/model' },
+              fallback: { 'sdd-init': 'old/fallback' },
+              configs: { 'sdd-init': { reasoningEffort: 'high' } }
+            }
+          });
+        }
+
+        return '{"models":{"sdd-init":"live/model"}}';
+      });
+      vi.mocked(fs.writeFileSync).mockImplementation((filePath: any, content: any) => {
+        writes.push({ filePath: String(filePath), content: String(content) });
+      });
+
+      restoreProfileVersion('team.json', 'team.json/2026-04-26T10-00-00-000Z-a.json');
+
+      expect(JSON.parse(writes[1].content)).toEqual({
+        models: { 'sdd-init': 'old/model' },
+        fallback: { 'sdd-init': 'old/fallback' },
+        configs: { 'sdd-init': { reasoningEffort: 'high' } }
+      });
     });
 
     it('restores raw snapshot content even when beforeRaw is invalid JSON', () => {
@@ -1963,6 +2045,116 @@ describe('profiles logic', () => {
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Activation Failed',
         variant: 'error',
+      }));
+    });
+
+    it('applies valid primary reasoning effort and warns for stale saved values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'openai/gpt-5', 'sdd-apply': 'openai/gpt-5' },
+            configs: {
+              'sdd-init': { reasoningEffort: 'high' },
+              'sdd-apply': { reasoningEffort: 'medium' },
+              'sdd-init-fallback': { reasoningEffort: 'low' }
+            }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-orchestrator',
+          agent: {
+            'sdd-orchestrator': { model: 'runtime/orch' },
+            'sdd-init': { model: 'openai/gpt-5' },
+            'sdd-apply': { model: 'openai/gpt-5' },
+          },
+        });
+      });
+
+      const toast = vi.fn();
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              models: {
+                'gpt-5': {
+                  capabilities: { reasoning: true },
+                  variants: {
+                    low: { reasoningEffort: 'low' },
+                    high: { reasoningEffort: 'high' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        ui: { toast },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-init']?.reasoningEffort).toBe('high');
+      expect(payload.agent['sdd-apply']?.reasoningEffort).toBeUndefined();
+      expect(payload.agent['sdd-init-fallback']?.reasoningEffort).toBeUndefined();
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Activation Warning',
+        variant: 'warning',
+      }));
+    });
+
+    it('warns and skips reasoning apply when runtime metadata is unavailable', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'openai/gpt-5' },
+            configs: { 'sdd-init': { reasoningEffort: 'high' } }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-init',
+          agent: {
+            'sdd-init': { model: 'openai/gpt-5' },
+          },
+        });
+      });
+
+      const toast = vi.fn();
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: { provider: [] },
+        ui: { toast },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-init']?.reasoningEffort).toBeUndefined();
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Activation Warning',
+        variant: 'warning',
+        message: expect.stringContaining('missing runtime metadata')
       }));
     });
   });

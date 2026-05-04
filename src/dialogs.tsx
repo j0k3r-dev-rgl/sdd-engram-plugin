@@ -33,6 +33,7 @@ import {
   listProfileFiles,
   readProfileData,
   sanitizeProfileName,
+  writeProfileData,
   writeProfileModels,
   updateProfileWithBulkPhaseAssignment,
   updateProfilePhaseModel,
@@ -44,6 +45,7 @@ import {
   deleteProfileFile,
   renameProfileFile,
 } from "./profiles";
+import { buildReasoningEditState, updateProfileReasoningEffort } from "./profile-reasoning";
 import { deleteProjectMemory, listProjectMemories } from "./memories";
 import { setActiveProfile } from "./state";
 import { canonicalizeProfileModels, getOrchestratorPolicy, type OrchestratorPolicy } from "./orchestrator";
@@ -68,6 +70,108 @@ export function buildProfileAgentRows(
     .map((name) => ({ title: name, value: `model:${name}`, modelId: models[name] }));
 }
 
+export function buildReasoningRowForAgent(profileData: any, agentName: string): { title: string; value: string; description: string; category: string } {
+  const saved = profileData?.configs?.[agentName]?.reasoningEffort;
+  return {
+    title: `${agentName} reasoning effort`,
+    value: `reasoning:${agentName}`,
+    description: saved ? `Saved: ${saved}` : "Unset",
+    category: "Reasoning (PRIMARY SDD only)",
+  };
+}
+
+export function buildReasoningBlockedMessage(state: any): string {
+  if (state?.kind === "missing-model") return `Assign a primary model to ${state.agentName} before editing reasoning effort.`;
+  if (state?.kind === "unsupported") return `Model ${state.modelId} does not expose reasoning effort options.`;
+  return "Reasoning effort is not editable for this selection.";
+}
+
+export const PROFILE_DETAIL_SUBMENU = {
+  PRIMARY: "__submenu_primary__",
+  REASONING: "__submenu_reasoning__",
+  FALLBACK: "__submenu_fallback__",
+} as const;
+
+export function resolveProfileDetailNavigationAction(optionValue: string):
+  | { action: "submenu-primary" }
+  | { action: "submenu-reasoning" }
+  | { action: "submenu-fallback" }
+  | { action: "back" }
+  | { action: "selection" }
+  | { action: "noop" } {
+  if (!optionValue) return { action: "noop" };
+  if (optionValue === PROFILE_DETAIL_SUBMENU.PRIMARY) return { action: "submenu-primary" };
+  if (optionValue === PROFILE_DETAIL_SUBMENU.REASONING) return { action: "submenu-reasoning" };
+  if (optionValue === PROFILE_DETAIL_SUBMENU.FALLBACK) return { action: "submenu-fallback" };
+  if (optionValue === "__back__") return { action: "back" };
+  if (optionValue.startsWith("__")) return { action: "noop" };
+  if (
+    optionValue.startsWith("model:")
+    || optionValue.startsWith("reasoning:")
+    || optionValue.startsWith("fallback:")
+  ) {
+    return { action: "selection" };
+  }
+  return { action: "noop" };
+}
+
+export function buildProfileDetailHubOptions(api: any, profileOpt: any, profileData: any) {
+  const { sddAgents, fallbackAgents } = buildProfileDetailAgentSections(api.state.config, profileData);
+  const reasoningSaved = sddAgents.filter(([name]) => Boolean(profileData?.configs?.[name]?.reasoningEffort)).length;
+  const reasoningSummary = `${reasoningSaved}/${sddAgents.length} saved`;
+  const fallbackConfigured = fallbackAgents.filter(([, modelId]) => Boolean(modelId)).length;
+  const fallbackSummary = `${fallbackConfigured}/${fallbackAgents.length} configured`;
+
+  return [
+    { title: `✏ Name: ${profileOpt.title}`, value: "__rename__", category: "Profile" },
+    {
+      title: "Bulk actions...",
+      value: "__bulk_actions__",
+      description: "Fill or override primary and fallback SDD phase assignments",
+      category: "Model Navigation",
+    },
+    ...sddAgents.map(([name, modelId]) => ({
+      title: name,
+      value: `model:${name}`,
+      description: resolveModelInfo(api, modelId),
+      category: "Model Navigation",
+    })),
+    {
+      title: "Reasoning effort...",
+      value: PROFILE_DETAIL_SUBMENU.REASONING,
+      description: reasoningSummary,
+      category: "Model Navigation",
+    },
+    {
+      title: "Fallback models...",
+      value: PROFILE_DETAIL_SUBMENU.FALLBACK,
+      description: fallbackSummary,
+      category: "Model Navigation",
+    },
+    {
+      title: "Profile versions...",
+      value: "__profile_versions__",
+      description: "Preview and restore previous profile versions",
+      category: "Agents",
+    },
+    { title: "✓ Activate Profile", value: "__assign__", category: NAV_CATEGORY },
+    { title: "✕ Delete Profile", value: "__delete__", category: NAV_CATEGORY },
+    { title: "← Back", value: "__back__", category: NAV_CATEGORY },
+  ];
+}
+
+export function resolveProfileDetailSelectionAction(optionValue: string):
+  | { action: "model"; agentName: string }
+  | { action: "reasoning"; agentName: string }
+  | { action: "fallback"; agentName: string }
+  | { action: "noop" } {
+  if (!optionValue || optionValue.startsWith("__")) return { action: "noop" };
+  if (optionValue.startsWith("model:")) return { action: "model", agentName: optionValue.replace("model:", "") };
+  if (optionValue.startsWith("reasoning:")) return { action: "reasoning", agentName: optionValue.replace("reasoning:", "") };
+  if (optionValue.startsWith("fallback:")) return { action: "fallback", agentName: optionValue.replace("fallback:", "") };
+  return { action: "noop" };
+}
+
 export function buildProfileDetailAgentSections(
   config: any,
   profileData: any
@@ -89,6 +193,37 @@ export function buildProfileDetailAgentSections(
     .map((name) => [name, fallbackModelMap[name]] as [string, string | undefined]);
 
   return { sddAgentNames, sddAgents, fallbackAgents, policy };
+}
+
+export function buildPrimaryModelSubmenuOptions(profileData: any, sections: any, api?: any) {
+  return [
+    ...sections.sddAgents.map(([name, modelId]: [string, string | undefined]) => ({
+      title: name,
+      value: `model:${name}`,
+      description: api ? resolveModelInfo(api, modelId) : (modelId || "Unset"),
+      category: "Primary Models",
+    })),
+    { title: "← Back", value: "__back__", category: NAV_CATEGORY },
+  ];
+}
+
+export function buildReasoningSubmenuOptions(profileData: any, sections: any) {
+  return [
+    ...sections.sddAgents.map(([name]: [string, string | undefined]) => buildReasoningRowForAgent(profileData, name)),
+    { title: "← Back", value: "__back__", category: NAV_CATEGORY },
+  ];
+}
+
+export function buildFallbackSubmenuOptions(profileData: any, sections: any, api?: any) {
+  return [
+    ...sections.fallbackAgents.map(([name, modelId]: [string, string | undefined]) => ({
+      title: `${name} -> ${name}-fallback`,
+      value: `fallback:${name}`,
+      description: modelId ? (api ? resolveModelInfo(api, modelId) : modelId) : "Inherited from base model",
+      category: "Fallback Models",
+    })),
+    { title: "← Back", value: "__back__", category: NAV_CATEGORY },
+  ];
 }
 
 /**
@@ -456,41 +591,13 @@ export function showProfileDetail(api: any, profileOpt: any) {
   try {
     const profilePath = path.join(profilesDir, profileOpt.value);
     const profileData = readProfileData(profilePath);
-    const { sddAgents, fallbackAgents } = buildProfileDetailAgentSections(api.state.config, profileData);
+    const sections = buildProfileDetailAgentSections(api.state.config, profileData);
+    const options = buildProfileDetailHubOptions(api, profileOpt, profileData);
 
     api.ui.dialog.replace(() => (
       <api.ui.DialogSelect
         title={`Profile: ${profileOpt.title}`}
-        options={[
-          { title: `✏ Name: ${profileOpt.title}`, value: "__rename__", category: "Profile" },
-          {
-            title: "Bulk actions...",
-            value: "__bulk_actions__",
-            description: "Fill or override primary and fallback SDD phase assignments",
-            category: "Agents (Click to edit model)",
-          },
-          {
-            title: "Profile versions...",
-            value: "__profile_versions__",
-            description: "Preview and restore previous profile versions",
-            category: "Profile",
-          },
-          ...sddAgents.map(([name, modelId]) => ({
-            title: name,
-            value: `model:${name}`,
-            description: resolveModelInfo(api, modelId),
-            category: "Agents (Click to edit model)",
-          })),
-          ...fallbackAgents.map(([name, modelId]) => ({
-            title: `${name} -> ${name}-fallback`,
-            value: `fallback:${name}`,
-            description: modelId ? resolveModelInfo(api, modelId) : "Inherited from base model",
-            category: "Fallback Models (Click to edit model)",
-          })),
-          { title: "✓ Activate Profile", value: "__assign__", category: NAV_CATEGORY },
-          { title: "✕ Delete Profile", value: "__delete__", category: NAV_CATEGORY },
-          { title: "← Back", value: "__back__", category: NAV_CATEGORY },
-        ]}
+        options={options}
         onSelect={(opt: any) => {
           if (opt.value === "__back__") showProfileListFn(api);
           else if (opt.value === "__assign__") handleActivateProfile(api, profilePath, profileOpt.title);
@@ -498,10 +605,15 @@ export function showProfileDetail(api: any, profileOpt: any) {
           else if (opt.value === "__rename__") showRenameProfile(api, profileOpt);
           else if (opt.value === "__bulk_actions__") showBulkProfileActions(api, profileOpt);
           else if (opt.value === "__profile_versions__") showProfileVersions(api, profileOpt);
-          else if (!opt.value.startsWith("__") && opt.value.startsWith("model:")) {
-            showProviderPickerForAgent(api, profileOpt, opt.value.replace("model:", ""), "model");
-          } else if (!opt.value.startsWith("__") && opt.value.startsWith("fallback:")) {
-            showProviderPickerForAgent(api, profileOpt, opt.value.replace("fallback:", ""), "fallback");
+          else {
+            const navAction = resolveProfileDetailNavigationAction(opt.value);
+            if (navAction.action === "submenu-primary") {
+              showProfileDetailSubmenuPrimary(api, profileOpt, profileData, sections);
+            } else if (navAction.action === "submenu-reasoning") {
+              showProfileDetailSubmenuReasoning(api, profileOpt, profileData, sections);
+            } else if (navAction.action === "submenu-fallback") {
+              showProfileDetailSubmenuFallback(api, profileOpt, profileData, sections);
+            }
           }
         }}
         onCancel={() => showProfileListFn(api)}
@@ -509,6 +621,120 @@ export function showProfileDetail(api: any, profileOpt: any) {
     ));
   } catch (e) {
     api.ui.toast({ title: "Error", message: "Failed to read profile details", variant: "error" });
+  }
+}
+
+function showProfileDetailSubmenuPrimary(api: any, profileOpt: any, profileData: any, sections?: any) {
+  const resolvedSections = sections || buildProfileDetailAgentSections(api.state.config, profileData);
+  api.ui.dialog.replace(() => (<api.ui.DialogSelect {...createPrimarySubmenuDialogProps(api, profileOpt, profileData, resolvedSections)} />));
+}
+
+function showProfileDetailSubmenuReasoning(api: any, profileOpt: any, profileData: any, sections?: any) {
+  const resolvedSections = sections || buildProfileDetailAgentSections(api.state.config, profileData);
+  api.ui.dialog.replace(() => (<api.ui.DialogSelect {...createReasoningSubmenuDialogProps(api, profileOpt, profileData, resolvedSections)} />));
+}
+
+function showProfileDetailSubmenuFallback(api: any, profileOpt: any, profileData: any, sections?: any) {
+  const resolvedSections = sections || buildProfileDetailAgentSections(api.state.config, profileData);
+  api.ui.dialog.replace(() => (<api.ui.DialogSelect {...createFallbackSubmenuDialogProps(api, profileOpt, profileData, resolvedSections)} />));
+}
+
+export function createPrimarySubmenuDialogProps(api: any, profileOpt: any, profileData: any, sections: any, deps?: any) {
+  const showHub = deps?.showProfileDetail || showProfileDetailFn;
+  const showProvider = deps?.showProviderPickerForAgent || showProviderPickerForAgent;
+  return {
+    title: `Primary models › ${profileOpt.title}`,
+    options: buildPrimaryModelSubmenuOptions(profileData, sections, api),
+    onSelect: (opt: any) => {
+      if (opt.value === "__back__") showHub(api, profileOpt);
+      else {
+        const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "model") showProvider(api, profileOpt, nextAction.agentName, "model");
+      }
+    },
+    onCancel: () => showHub(api, profileOpt),
+  };
+}
+
+export function createReasoningSubmenuDialogProps(api: any, profileOpt: any, profileData: any, sections: any, deps?: any) {
+  const showHub = deps?.showProfileDetail || showProfileDetailFn;
+  const showReasoning = deps?.showReasoningEffortPicker || showReasoningEffortPicker;
+  return {
+    title: `Reasoning effort › ${profileOpt.title}`,
+    options: buildReasoningSubmenuOptions(profileData, sections),
+    onSelect: (opt: any) => {
+      if (opt.value === "__back__") showHub(api, profileOpt);
+      else {
+        const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "reasoning") showReasoning(api, profileOpt, nextAction.agentName);
+      }
+    },
+    onCancel: () => showHub(api, profileOpt),
+  };
+}
+
+export function createFallbackSubmenuDialogProps(api: any, profileOpt: any, profileData: any, sections: any, deps?: any) {
+  const showHub = deps?.showProfileDetail || showProfileDetailFn;
+  const showProvider = deps?.showProviderPickerForAgent || showProviderPickerForAgent;
+  return {
+    title: `Fallback models › ${profileOpt.title}`,
+    options: buildFallbackSubmenuOptions(profileData, sections, api),
+    onSelect: (opt: any) => {
+      if (opt.value === "__back__") showHub(api, profileOpt);
+      else {
+        const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "fallback") showProvider(api, profileOpt, nextAction.agentName, "fallback");
+      }
+    },
+    onCancel: () => showHub(api, profileOpt),
+  };
+}
+
+function showReasoningEffortPicker(api: any, profileOpt: any, agentName: string) {
+  const { profilesDir } = resolvePaths();
+  const profilePath = path.join(profilesDir, profileOpt.value);
+
+  try {
+    const profile = readProfileData(profilePath);
+    const modelId = profile?.models?.[agentName];
+    const current = profile?.configs?.[agentName]?.reasoningEffort;
+    const state = buildReasoningEditState(api?.state?.provider || [], agentName, modelId, current);
+
+    if (state.kind !== "selectable") {
+      api.ui.toast({ title: "Reasoning Unsupported", message: buildReasoningBlockedMessage(state), variant: "warning" });
+      showProfileDetailFn(api, profileOpt);
+      return;
+    }
+
+    api.ui.dialog.replace(() => (
+      <api.ui.DialogSelect
+        title={`Reasoning effort › ${agentName}`}
+        options={[
+          ...state.options.map((value: string) => ({
+            title: value,
+            value,
+            description: state.current === value ? "Current" : undefined,
+          })),
+          { title: "Clear saved value", value: "__clear__", category: NAV_CATEGORY },
+          { title: "← Back", value: "__back__", category: NAV_CATEGORY },
+        ]}
+        onSelect={(opt: any) => {
+          if (opt.value === "__back__") {
+            showProfileDetailFn(api, profileOpt);
+            return;
+          }
+
+          const nextProfile = updateProfileReasoningEffort(profile, agentName, opt.value === "__clear__" ? "" : opt.value);
+          writeProfileData(profilePath, nextProfile, resolveRuntimeOrchestratorPolicy(api.state.config));
+          api.ui.toast({ title: "Updated", message: `${agentName} reasoning effort updated`, variant: "success" });
+          showProfileDetailFn(api, profileOpt);
+        }}
+        onCancel={() => showProfileDetailFn(api, profileOpt)}
+      />
+    ));
+  } catch (e: any) {
+    api.ui.toast({ title: "Error", message: `Failed to update reasoning effort: ${e.message}`, variant: "error" });
+    showProfileDetailFn(api, profileOpt);
   }
 }
 
@@ -856,6 +1082,29 @@ function showModelPickerForAgent(
 ) {
   const models = provider.models || {};
   const modelKeys = Object.keys(models);
+
+  if (mode === "model") {
+    console.info("[sdd-engram-plugin] provider model metadata", {
+      agentName,
+      providerId: provider?.id,
+      providerName: provider?.name,
+      modelCount: modelKeys.length,
+      sampleModelKeys: modelKeys.slice(0, 10),
+      models,
+    });
+
+    for (const key of modelKeys) {
+      const model = models[key] || {};
+      console.log("[sdd-engram-plugin] model metadata detail", {
+        agentName,
+        providerId: provider?.id,
+        modelKey: key,
+        options: model.options || {},
+        capabilities: model.capabilities || {},
+        variants: model.variants || {},
+      });
+    }
+  }
 
   api.ui.dialog.replace(() => (
     <api.ui.DialogSelect

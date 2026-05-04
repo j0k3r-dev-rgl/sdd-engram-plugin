@@ -1,11 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BULK_ASSIGNMENT_MODE, BULK_ASSIGNMENT_TARGET, PROFILE_VERSION_SOURCE } from './types';
-import { buildBulkProfileActionOptions, buildProfileVersionListOption, formatProfileVersionPreviewLines } from './dialogs';
+import { buildBulkProfileActionOptions, buildProfileVersionListOption, createFallbackSubmenuDialogProps, createPrimarySubmenuDialogProps, createReasoningSubmenuDialogProps, formatProfileVersionPreviewLines } from './dialogs';
 import { buildProfileAgentRows } from './dialogs';
-import { buildProfileDetailAgentSections, resolveRuntimeOrchestratorPolicy } from './dialogs';
+import { buildProfileDetailAgentSections, resolveRuntimeOrchestratorPolicy, buildReasoningRowForAgent, buildReasoningBlockedMessage } from './dialogs';
+import { resolveProfileDetailSelectionAction } from './dialogs';
+import {
+  PROFILE_DETAIL_SUBMENU,
+  buildFallbackSubmenuOptions,
+  buildPrimaryModelSubmenuOptions,
+  buildProfileDetailHubOptions,
+  buildReasoningSubmenuOptions,
+  resolveProfileDetailNavigationAction,
+} from './dialogs';
 import { getOrchestratorPolicy } from './orchestrator';
 
 describe('dialog pure builders', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('shows canonical orchestrator row for updated runtime', () => {
     const policy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
     const rows = buildProfileAgentRows(
@@ -159,5 +172,179 @@ describe('dialog pure builders', () => {
       description: 'Override all primary phases: 2 primary, 0 fallback',
     });
     expect(option.title).toContain('2026');
+  });
+
+  it('builds reasoning detail row with saved value and stable action token', () => {
+    const withValue = buildReasoningRowForAgent({ configs: { 'sdd-apply': { reasoningEffort: 'high' } } }, 'sdd-apply');
+    expect(withValue).toEqual({
+      title: 'sdd-apply reasoning effort',
+      value: 'reasoning:sdd-apply',
+      description: 'Saved: high',
+      category: 'Reasoning (PRIMARY SDD only)',
+    });
+
+    const withoutValue = buildReasoningRowForAgent({}, 'sdd-apply');
+    expect(withoutValue.description).toBe('Unset');
+  });
+
+  it('returns explicit blocked messages for missing-model and unsupported states', () => {
+    expect(buildReasoningBlockedMessage({ kind: 'missing-model', agentName: 'sdd-apply' }))
+      .toContain('Assign a primary model');
+
+    expect(buildReasoningBlockedMessage({ kind: 'unsupported', agentName: 'sdd-apply', modelId: 'openai/gpt-4.1' }))
+      .toContain('does not expose reasoning effort options');
+  });
+
+  it('routes profile detail selection actions to reasoning/model/fallback branches', () => {
+    expect(resolveProfileDetailSelectionAction('reasoning:sdd-apply')).toEqual({ action: 'reasoning', agentName: 'sdd-apply' });
+    expect(resolveProfileDetailSelectionAction('model:sdd-design')).toEqual({ action: 'model', agentName: 'sdd-design' });
+    expect(resolveProfileDetailSelectionAction('fallback:sdd-design')).toEqual({ action: 'fallback', agentName: 'sdd-design' });
+  });
+
+  it('does not route navigation/internal tokens as reasoning edit actions', () => {
+    expect(resolveProfileDetailSelectionAction('__back__')).toEqual({ action: 'noop' });
+    expect(resolveProfileDetailSelectionAction('')).toEqual({ action: 'noop' });
+    expect(resolveProfileDetailSelectionAction('unknown-token')).toEqual({ action: 'noop' });
+  });
+
+  it('builds profile detail hub with inline primary rows and reasoning/fallback navigation entries', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profileData = {
+      models: { 'sdd-apply': 'openai/gpt-4.1', 'sdd-design': 'openai/gpt-4.1-mini' },
+      fallback: { 'sdd-apply': 'openai/gpt-4.1-mini' },
+      configs: { 'sdd-apply': { reasoningEffort: 'medium' } },
+    };
+
+    const options = buildProfileDetailHubOptions(api as any, profileOpt, profileData);
+    const submenuValues = options
+      .filter((option) => option.value.startsWith('__submenu_'))
+      .map((option) => option.value)
+      .sort();
+
+    expect(submenuValues).toEqual([
+      PROFILE_DETAIL_SUBMENU.FALLBACK,
+      PROFILE_DETAIL_SUBMENU.REASONING,
+    ]);
+
+    const optionValues = options.map((option) => option.value);
+    expect(optionValues.some((value) => String(value).startsWith('model:'))).toBe(true);
+    expect(optionValues.some((value) => String(value).startsWith('reasoning:'))).toBe(false);
+    expect(optionValues.some((value) => String(value).startsWith('fallback:'))).toBe(false);
+    expect(optionValues).toContain('__rename__');
+    expect(optionValues).toContain('__profile_versions__');
+    expect(optionValues[1]).toBe('__bulk_actions__');
+
+    const profileVersionsOption = options.find((option) => option.value === '__profile_versions__');
+    expect(profileVersionsOption?.category).toBe('Agents');
+    const bulkActionsOption = options.find((option) => option.value === '__bulk_actions__');
+    expect(bulkActionsOption?.category).toBe('Model Navigation');
+  });
+
+  it('builds submenu option sets and resolves submenu navigation tokens', () => {
+    const profileData = {
+      models: { 'sdd-apply': 'openai/gpt-4.1', 'sdd-design': 'openai/gpt-4.1-mini' },
+      fallback: { 'sdd-design': 'openai/gpt-4.1-nano' },
+      configs: { 'sdd-apply': { reasoningEffort: 'high' } },
+    };
+    const sections = {
+      sddAgentNames: ['sdd-apply', 'sdd-design'],
+      sddAgents: [
+        ['sdd-apply', 'openai/gpt-4.1'],
+        ['sdd-design', 'openai/gpt-4.1-mini'],
+      ],
+      fallbackAgents: [
+        ['sdd-design', 'openai/gpt-4.1-nano'],
+      ],
+      policy: { canonicalName: 'sdd-orchestrator' },
+    } as any;
+
+    const primary = buildPrimaryModelSubmenuOptions(profileData, sections);
+    const reasoning = buildReasoningSubmenuOptions(profileData, sections);
+    const fallback = buildFallbackSubmenuOptions(profileData, sections);
+
+    expect(primary.some((option) => option.value === 'model:sdd-apply')).toBe(true);
+    expect(reasoning.some((option) => option.value === 'reasoning:sdd-design')).toBe(true);
+    expect(fallback.some((option) => option.value === 'fallback:sdd-design')).toBe(true);
+    expect(primary.at(-1)?.value).toBe('__back__');
+    expect(reasoning.at(-1)?.value).toBe('__back__');
+    expect(fallback.at(-1)?.value).toBe('__back__');
+
+    expect(resolveProfileDetailNavigationAction(PROFILE_DETAIL_SUBMENU.PRIMARY)).toEqual({ action: 'submenu-primary' });
+    expect(resolveProfileDetailNavigationAction(PROFILE_DETAIL_SUBMENU.REASONING)).toEqual({ action: 'submenu-reasoning' });
+    expect(resolveProfileDetailNavigationAction(PROFILE_DETAIL_SUBMENU.FALLBACK)).toEqual({ action: 'submenu-fallback' });
+    expect(resolveProfileDetailNavigationAction('__back__')).toEqual({ action: 'back' });
+    expect(resolveProfileDetailNavigationAction('model:sdd-apply')).toEqual({ action: 'selection' });
+  });
+
+  it('runtime: Back from each submenu returns safely to profile detail hub without writes', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profileData = { models: { 'sdd-apply': 'openai/gpt-4.1' }, fallback: {}, configs: {} } as any;
+    const sections = buildProfileDetailAgentSections(api.state.config, profileData);
+    const showHub = vi.fn();
+    const showProvider = vi.fn();
+    const showReasoning = vi.fn();
+
+    const primary = createPrimarySubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+    const reasoning = createReasoningSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showReasoningEffortPicker: showReasoning });
+    const fallback = createFallbackSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+
+    primary.onSelect({ value: '__back__' });
+    reasoning.onSelect({ value: '__back__' });
+    fallback.onSelect({ value: '__back__' });
+
+    expect(showHub).toHaveBeenCalledTimes(3);
+    expect(showProvider).not.toHaveBeenCalled();
+    expect(showReasoning).not.toHaveBeenCalled();
+  });
+
+  it('runtime: Cancel from each submenu returns safely to profile detail hub without writes', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profileData = { models: { 'sdd-apply': 'openai/gpt-4.1' }, fallback: {}, configs: {} } as any;
+    const sections = buildProfileDetailAgentSections(api.state.config, profileData);
+    const showHub = vi.fn();
+    const showProvider = vi.fn();
+    const showReasoning = vi.fn();
+
+    const primary = createPrimarySubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+    const reasoning = createReasoningSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showReasoningEffortPicker: showReasoning });
+    const fallback = createFallbackSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+
+    primary.onCancel();
+    reasoning.onCancel();
+    fallback.onCancel();
+
+    expect(showHub).toHaveBeenCalledTimes(3);
+    expect(showProvider).not.toHaveBeenCalled();
+    expect(showReasoning).not.toHaveBeenCalled();
+  });
+
+  it('runtime: submenu routing preserves edit semantics and persists only on explicit edit confirmation', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profileData = {
+      models: { 'sdd-apply': 'openai/gpt-4.1', 'sdd-design': 'openai/gpt-4.1-mini' },
+      fallback: { 'sdd-apply': 'openai/gpt-4.1-mini' },
+      configs: { 'sdd-apply': { reasoningEffort: 'medium' } },
+    } as any;
+    const sections = buildProfileDetailAgentSections(api.state.config, profileData);
+    const showHub = vi.fn();
+    const showProvider = vi.fn();
+    const showReasoning = vi.fn();
+
+    const primary = createPrimarySubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+    const reasoning = createReasoningSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showReasoningEffortPicker: showReasoning });
+    const fallback = createFallbackSubmenuDialogProps(api, profileOpt, profileData, sections, { showProfileDetail: showHub, showProviderPickerForAgent: showProvider });
+
+    primary.onSelect({ value: 'model:sdd-apply' });
+    fallback.onSelect({ value: 'fallback:sdd-apply' });
+    reasoning.onSelect({ value: 'reasoning:sdd-apply' });
+
+    expect(showProvider).toHaveBeenNthCalledWith(1, api, profileOpt, 'sdd-apply', 'model');
+    expect(showProvider).toHaveBeenNthCalledWith(2, api, profileOpt, 'sdd-apply', 'fallback');
+    expect(showReasoning).toHaveBeenCalledWith(api, profileOpt, 'sdd-apply');
+    expect(showHub).not.toHaveBeenCalled();
   });
 });

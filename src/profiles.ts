@@ -12,6 +12,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import {
+  applyProfileReasoningEffort,
+  normalizeProfileConfigs,
+  updateProfileReasoningEffort,
+} from "./profile-reasoning";
+import {
   BULK_ASSIGNMENT_MODE,
   BULK_ASSIGNMENT_TARGET,
   BulkAssignmentOperation,
@@ -139,7 +144,7 @@ function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
 
   return Object.fromEntries(
     Object.entries(raw).filter(([key]) => {
-      if (key === "models" || key === "fallback" || key === "agent") return false;
+      if (key === "models" || key === "fallback" || key === "configs" || key === "agent") return false;
       if (isPrimarySddAgent(key) || isSddFallbackAgent(key)) return false;
       return true;
     })
@@ -149,11 +154,13 @@ function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
 function normalizePersistedProfileData(profile: ProfileData, policy?: OrchestratorPolicy): ProfileData {
   const models = normalizeProfileModels(profile?.models, policy);
   const fallback = extractSddFallbackModels({ fallback: profile?.fallback || {} });
+  const configs = normalizeProfileConfigs(profile?.configs);
 
   return {
     ...extractPersistedProfileExtras(profile),
     models,
     ...(Object.keys(fallback).length > 0 ? { fallback } : {}),
+    ...(configs ? { configs } : {}),
   };
 }
 
@@ -253,6 +260,7 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
   }
 
   const fallback = extractSddFallbackModels(raw);
+  const configs = normalizeProfileConfigs(raw?.configs);
   const policy = getOrchestratorPolicy(Object.keys(raw?.agent || raw?.models || raw || {}));
   return {
     ...extractPersistedProfileExtras(raw),
@@ -260,6 +268,7 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
     ...(Object.keys(fallback).length > 0
       ? { fallback }
       : {}),
+    ...(configs ? { configs } : {}),
   };
 }
 
@@ -720,6 +729,22 @@ export function restoreProfileVersion(profilePathOrFile: string, versionId: stri
     },
     `Snapshot before restoring ${path.basename(versionId)}`
   );
+
+  let parsedBeforeRaw: any;
+  try {
+    parsedBeforeRaw = JSON.parse(version.beforeRaw);
+  } catch {
+    atomicWriteFile(profilePath, version.beforeRaw);
+    return version;
+  }
+
+  if (parsedBeforeRaw && typeof parsedBeforeRaw === "object" && !Array.isArray(parsedBeforeRaw) && parsedBeforeRaw.configs) {
+    const runtimePolicy = getOrchestratorPolicy(Object.keys(parsedBeforeRaw?.agent || parsedBeforeRaw?.models || parsedBeforeRaw || {}));
+    const normalizedProfile = readProfileDataFromRaw(version.beforeRaw);
+    writeProfileData(profilePath, normalizedProfile, runtimePolicy);
+    return version;
+  }
+
   atomicWriteFile(profilePath, version.beforeRaw);
   return version;
 }
@@ -784,6 +809,11 @@ export function updateProfilePhaseModel(
     nextProfile.fallback = { ...(nextProfile.fallback || {}), [agentName]: trimmedModelId };
   } else {
     nextProfile.models = { ...(nextProfile.models || {}), [agentName]: trimmedModelId };
+    if (profileData?.configs?.[agentName]?.reasoningEffort) {
+      const previousReasoningEffort = profileData.configs[agentName].reasoningEffort;
+      const updatedReasoning = updateProfileReasoningEffort(nextProfile, agentName, previousReasoningEffort);
+      nextProfile.configs = updatedReasoning.configs;
+    }
   }
 
   const operation: PhaseProfileVersionOperation = {
@@ -1021,7 +1051,8 @@ function applyProfileModelsToConfig(currentConfig: any, profileModels: ProfileMo
 export function applyProfileDataToConfig(currentConfig: any, profile: ProfileData): any {
   const withPrimaryModels = applyProfileModelsToConfig(currentConfig, profile.models || {});
   const fallbackModels = profile.fallback || {};
-  return syncSddFallbackAgents(withPrimaryModels, fallbackModels);
+  const withFallback = syncSddFallbackAgents(withPrimaryModels, fallbackModels);
+  return applyProfileReasoningEffort(withFallback, profile, []).config;
 }
 
 /**
@@ -1070,13 +1101,23 @@ export async function activateProfileFile(api: any, profilePath: string, profile
       throw new Error(fallbackValidationErrors.join(" | "));
     }
 
-    const nextConfig = syncSddFallbackAgents(nextConfigWithModels, profileData.fallback || {});
+    const nextConfigWithFallback = syncSddFallbackAgents(nextConfigWithModels, profileData.fallback || {});
+    const reasoningResult = applyProfileReasoningEffort(nextConfigWithFallback, profileData, api?.state?.provider || []);
+    const nextConfig = reasoningResult.config;
 
     const result = await api.client.global.config.update({
       config: nextConfig,
     });
 
     if (result?.error) throw new Error(result.error.message || "Failed to update global runtime configuration");
+
+    if (reasoningResult.warnings.length > 0) {
+      api.ui.toast({
+        title: "Activation Warning",
+        message: reasoningResult.warnings.join(" | "),
+        variant: "warning",
+      });
+    }
 
     // IMPORTANT:
     // Do NOT rewrite opencode.json from plugin-side after profile switch.

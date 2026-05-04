@@ -25,12 +25,19 @@ export type ProfileModels = Record<string, string>;
  */
 export type ProfileFallbackModels = Record<string, string>;
 
+export type ProfileAgentConfig = {
+  reasoningEffort?: string;
+};
+
+export type ProfileConfigs = Record<string, ProfileAgentConfig>;
+
 /**
  * Full profile payload persisted to disk
  */
 export type ProfileData = {
   models: ProfileModels;
   fallback?: ProfileFallbackModels;
+  configs?: ProfileConfigs;
 };
 
 export const BULK_ASSIGNMENT_TARGET = {
@@ -92,6 +99,7 @@ export type BulkProfilePhaseAssignmentResult = {
 export type ProfileVersionPreview = {
   models: ProfileModels;
   fallback: ProfileFallbackModels;
+  configs?: ProfileConfigs;
 };
 
 export type ProfileVersion = {
