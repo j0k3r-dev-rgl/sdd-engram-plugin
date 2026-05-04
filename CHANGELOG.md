@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.5...v1.4.0) (2026-05-04)
+
+
+### Features
+
+* add profile reasoning effort configuration ([0646553](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/0646553186ba6955568c41cdcd9f08c13f2917c3))
+
 ## [1.3.5](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.3.4...v1.3.5) (2026-05-03)
 
 
