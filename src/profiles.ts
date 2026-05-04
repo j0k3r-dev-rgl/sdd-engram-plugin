@@ -1112,6 +1112,13 @@ export async function activateProfileFile(api: any, profilePath: string, profile
 
     if (result?.error) throw new Error(result.error.message || "Failed to update global runtime configuration");
 
+    if (fs.existsSync(configPath)) {
+      const shouldRewriteConfigFile = reasoningResult.clearedAgents.length > 0;
+      if (shouldRewriteConfigFile) {
+        fs.writeFileSync(configPath, JSON.stringify(nextConfig, null, 2));
+      }
+    }
+
     if (reasoningResult.warnings.length > 0) {
       api.ui.toast({
         title: "Activation Warning",
@@ -1121,11 +1128,13 @@ export async function activateProfileFile(api: any, profilePath: string, profile
     }
 
     // IMPORTANT:
-    // Do NOT rewrite opencode.json from plugin-side after profile switch.
-    // The runtime config API is the source of truth for persistence/format.
-    // Rewriting here causes full-file churn (indent/style drift) and can
-    // materialize resolved/default fields that were not explicitly set.
-    return result?.data || nextConfig;
+    // The plugin UI should reflect the exact config we just activated.
+    // Some runtime update responses can lag or omit recently removed fields,
+    // especially when we clear optional agent settings like reasoningEffort.
+    // Returning nextConfig keeps the immediate UI state aligned with the
+    // activated profile, while the runtime/file persistence continues through
+    // global.config.update + optional cleanup rewrite above.
+    return nextConfig;
   } catch (err: any) {
     api.ui.toast({ title: "Activation Failed", message: err.message, variant: "error" });
     return null;

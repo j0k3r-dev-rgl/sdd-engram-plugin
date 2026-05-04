@@ -2271,7 +2271,7 @@ describe('profiles logic', () => {
         return JSON.stringify({
           default_agent: 'sdd-init',
           agent: {
-            'sdd-init': { model: 'openai/gpt-5' },
+            'sdd-init': { model: 'openai/gpt-5', reasoningEffort: 'low' },
           },
         });
       });
@@ -2300,6 +2300,228 @@ describe('profiles logic', () => {
         variant: 'warning',
         message: expect.stringContaining('missing runtime metadata')
       }));
+    });
+
+    it('clears stale runtime reasoning effort when saved effort is incompatible with current model', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'openai/gpt-5' },
+            configs: { 'sdd-init': { reasoningEffort: 'medium' } }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-init',
+          agent: {
+            'sdd-init': { model: 'openai/gpt-5', reasoningEffort: 'high' },
+          },
+        });
+      });
+
+      const toast = vi.fn();
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              models: {
+                'gpt-5': {
+                  capabilities: { reasoning: true },
+                  variants: {
+                    low: { reasoningEffort: 'low' },
+                    high: { reasoningEffort: 'high' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        ui: { toast },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-init']?.reasoningEffort).toBeUndefined();
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Activation Warning',
+        variant: 'warning',
+        message: expect.stringContaining('incompatible')
+      }));
+    });
+
+    it('clears stale runtime reasoning effort when activated profile omits configs', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'sdd-init': 'openai/gpt-5' }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-init',
+          agent: {
+            'sdd-init': { model: 'openai/gpt-5', reasoningEffort: 'high', options: { reasoningEffort: 'high' } },
+            'sdd-apply': { model: 'openai/gpt-5', reasoningEffort: 'low' },
+          },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: { provider: [] },
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-init']?.reasoningEffort).toBeUndefined();
+      expect(payload.agent['sdd-init']?.options?.reasoningEffort).toBeUndefined();
+      expect(payload.agent['sdd-apply']?.reasoningEffort).toBe('low');
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        '/mock/config/opencode.json',
+        JSON.stringify(payload, null, 2)
+      );
+    });
+
+    it('clears stale nested options reasoning effort when selected model is incompatible', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'gentle-orchestrator': 'openai/gpt-5' },
+            configs: { 'gentle-orchestrator': { reasoningEffort: 'medium' } }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'gentle-orchestrator',
+          agent: {
+            'gentle-orchestrator': {
+              model: 'openai/gpt-5',
+              reasoningEffort: 'xhigh',
+              options: { reasoningEffort: 'xhigh' },
+            },
+          },
+        });
+      });
+
+      const toast = vi.fn();
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              models: {
+                'gpt-5': {
+                  capabilities: { reasoning: true },
+                  variants: {
+                    low: { reasoningEffort: 'low' },
+                    high: { reasoningEffort: 'high' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        ui: { toast },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['gentle-orchestrator']?.reasoningEffort).toBeUndefined();
+      expect(payload.agent['gentle-orchestrator']?.options?.reasoningEffort).toBeUndefined();
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Activation Warning',
+        variant: 'warning',
+        message: expect.stringContaining('incompatible')
+      }));
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        '/mock/config/opencode.json',
+        JSON.stringify(payload, null, 2)
+      );
+    });
+
+    it('returns the cleaned nextConfig even if runtime update data is stale', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'gentle-orchestrator': 'openai/gpt-5' }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'gentle-orchestrator',
+          agent: {
+            'gentle-orchestrator': {
+              model: 'openai/gpt-5',
+              reasoningEffort: 'xhigh',
+              options: { reasoningEffort: 'xhigh' },
+            },
+          },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({
+        data: {
+          agent: {
+            'gentle-orchestrator': {
+              model: 'openai/gpt-5',
+              reasoningEffort: 'xhigh',
+              options: { reasoningEffort: 'xhigh' },
+            },
+          },
+        },
+      });
+      const api = {
+        state: { provider: [] },
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      const result = await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      expect(result?.agent['gentle-orchestrator']?.reasoningEffort).toBeUndefined();
+      expect(result?.agent['gentle-orchestrator']?.options?.reasoningEffort).toBeUndefined();
     });
   });
 });

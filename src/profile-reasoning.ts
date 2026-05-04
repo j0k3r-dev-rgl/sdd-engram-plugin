@@ -6,6 +6,8 @@ import { isPrimarySddAgent, isSddFallbackAgent } from "./utils";
 import {
   LEGACY_ORCHESTRATOR,
   UPDATED_ORCHESTRATOR,
+  canonicalizeProfileModels,
+  getOrchestratorPolicy,
   type OrchestratorPolicy,
 } from "./orchestrator";
 
@@ -111,17 +113,61 @@ export function updateProfileReasoningEffort(profile: ProfileData, agentName: st
   return nextProfile;
 }
 
+function clearAgentReasoningEffort(agentConfig: any) {
+  if (!agentConfig || typeof agentConfig !== "object") return;
+  delete agentConfig.reasoningEffort;
+  if (agentConfig.options && typeof agentConfig.options === "object") {
+    delete agentConfig.options.reasoningEffort;
+  }
+}
+
+function applyAgentReasoningEffort(agentConfig: any, effort: string) {
+  const next = {
+    ...(agentConfig || {}),
+    reasoningEffort: effort,
+    options: {
+      ...((agentConfig && typeof agentConfig.options === "object") ? agentConfig.options : {}),
+      reasoningEffort: effort,
+    },
+  };
+  return next;
+}
+
 export function applyProfileReasoningEffort(currentConfig: any, profile: ProfileData, providers: any[], policy?: OrchestratorPolicy): {
   config: any;
   warnings: string[];
   appliedAgents: string[];
+  clearedAgents: string[];
 } {
   const nextConfig = JSON.parse(JSON.stringify(currentConfig || {}));
   const warnings: string[] = [];
   const appliedAgents: string[] = [];
-  const normalizedConfigs = normalizeProfileConfigs(profile?.configs, policy);
+  const clearedAgents: string[] = [];
+  const effectivePolicy = policy || getOrchestratorPolicy(
+    [
+      ...Object.keys(nextConfig?.agent || {}),
+      ...Object.keys(profile?.models || {}),
+      ...Object.keys(profile?.configs || {}),
+    ],
+    nextConfig?.default_agent,
+  );
+  const normalizedConfigs = normalizeProfileConfigs(profile?.configs, effectivePolicy);
+
+  const scopedPrimaryAgents = Object.keys(
+    canonicalizeProfileModels(profile?.models || {}, effectivePolicy)
+  ).filter((agentName) => isPrimarySddAgent(agentName) && !isSddFallbackAgent(agentName));
+
+  const configuredAgents = new Set(Object.keys(normalizedConfigs || {}));
+  for (const agentName of scopedPrimaryAgents) {
+    if (configuredAgents.has(agentName)) continue;
+    if (nextConfig?.agent?.[agentName] && typeof nextConfig.agent[agentName] === "object") {
+      clearAgentReasoningEffort(nextConfig.agent[agentName]);
+      clearedAgents.push(agentName);
+    }
+  }
+
   if (!normalizedConfigs) {
-    return { config: nextConfig, warnings, appliedAgents };
+    return { config: nextConfig, warnings, appliedAgents, clearedAgents };
   }
 
   for (const [agentName, cfg] of Object.entries(normalizedConfigs)) {
@@ -134,21 +180,26 @@ export function applyProfileReasoningEffort(currentConfig: any, profile: Profile
     const modelDef = resolveModelDefinition(providers, modelId);
     const options = listReasoningEffortsFromModel(modelDef);
     if (!modelDef || options.length === 0) {
+      if (nextConfig?.agent?.[agentName] && typeof nextConfig.agent[agentName] === "object") {
+        clearAgentReasoningEffort(nextConfig.agent[agentName]);
+        clearedAgents.push(agentName);
+      }
       warnings.push(`Skipped reasoning effort for ${agentName}: missing runtime metadata for ${modelId}.`);
       continue;
     }
     if (!options.includes(effort)) {
+      if (nextConfig?.agent?.[agentName] && typeof nextConfig.agent[agentName] === "object") {
+        clearAgentReasoningEffort(nextConfig.agent[agentName]);
+        clearedAgents.push(agentName);
+      }
       warnings.push(`Skipped reasoning effort for ${agentName}: saved value '${effort}' is incompatible with ${modelId}.`);
       continue;
     }
 
     if (!nextConfig.agent) nextConfig.agent = {};
-    nextConfig.agent[agentName] = {
-      ...(nextConfig.agent[agentName] || {}),
-      reasoningEffort: effort,
-    };
+    nextConfig.agent[agentName] = applyAgentReasoningEffort(nextConfig.agent[agentName], effort);
     appliedAgents.push(agentName);
   }
 
-  return { config: nextConfig, warnings, appliedAgents };
+  return { config: nextConfig, warnings, appliedAgents, clearedAgents: Array.from(new Set(clearedAgents)) };
 }

@@ -143,7 +143,7 @@ describe("profile reasoning helpers", () => {
     it("applies only valid primary reasoning values", () => {
       const next = applyProfileReasoningEffort({
         agent: {
-          "sdd-apply": { model: "openai/gpt-5" },
+          "sdd-apply": { model: "openai/gpt-5", options: {} },
           "sdd-apply-fallback": { model: "openai/gpt-4.1" },
         },
       }, {
@@ -155,15 +155,17 @@ describe("profile reasoning helpers", () => {
       } as any, providers as any);
 
       expect(next.config.agent["sdd-apply"].reasoningEffort).toBe("high");
+      expect(next.config.agent["sdd-apply"].options.reasoningEffort).toBe("high");
       expect(next.config.agent["sdd-apply-fallback"].reasoningEffort).toBeUndefined();
       expect(next.appliedAgents).toEqual(["sdd-apply"]);
+      expect(next.clearedAgents).toEqual([]);
       expect(next.warnings).toEqual([]);
     });
 
     it("skips stale or unverifiable values and emits warnings", () => {
       const stale = applyProfileReasoningEffort({
         agent: {
-          "sdd-apply": { model: "openai/gpt-5" },
+          "sdd-apply": { model: "openai/gpt-5", reasoningEffort: "low", options: { reasoningEffort: "low" } },
         },
       }, {
         models: { "sdd-apply": "openai/gpt-5" },
@@ -171,11 +173,14 @@ describe("profile reasoning helpers", () => {
       } as any, providers as any);
 
       expect(stale.appliedAgents).toEqual([]);
+      expect(stale.clearedAgents).toEqual(["sdd-apply"]);
+      expect(stale.config.agent["sdd-apply"].reasoningEffort).toBeUndefined();
+      expect(stale.config.agent["sdd-apply"].options.reasoningEffort).toBeUndefined();
       expect(stale.warnings[0]).toContain("incompatible");
 
       const missingMetadata = applyProfileReasoningEffort({
         agent: {
-          "sdd-apply": { model: "anthropic/sonnet" },
+          "sdd-apply": { model: "anthropic/sonnet", reasoningEffort: "high", options: { reasoningEffort: "high" } },
         },
       }, {
         models: { "sdd-apply": "anthropic/sonnet" },
@@ -183,6 +188,9 @@ describe("profile reasoning helpers", () => {
       } as any, providers as any);
 
       expect(missingMetadata.appliedAgents).toEqual([]);
+      expect(missingMetadata.clearedAgents).toEqual(["sdd-apply"]);
+      expect(missingMetadata.config.agent["sdd-apply"].reasoningEffort).toBeUndefined();
+      expect(missingMetadata.config.agent["sdd-apply"].options.reasoningEffort).toBeUndefined();
       expect(missingMetadata.warnings[0]).toContain("metadata");
     });
 
@@ -200,6 +208,7 @@ describe("profile reasoning helpers", () => {
       expect(next.config.agent["gentle-orchestrator"].reasoningEffort).toBe("high");
       expect(next.config.agent["sdd-orchestrator"]).toBeUndefined();
       expect(next.appliedAgents).toEqual(["gentle-orchestrator"]);
+      expect(next.clearedAgents).toEqual([]);
     });
 
     it("applies orchestrator reasoning effort using legacy runtime canonical alias", () => {
@@ -216,6 +225,51 @@ describe("profile reasoning helpers", () => {
       expect(next.config.agent["sdd-orchestrator"].reasoningEffort).toBe("low");
       expect(next.config.agent["gentle-orchestrator"]).toBeUndefined();
       expect(next.appliedAgents).toEqual(["sdd-orchestrator"]);
+      expect(next.clearedAgents).toEqual([]);
+    });
+
+    it("clears stale reasoning effort for scoped primary agents when profile configs are absent", () => {
+      const next = applyProfileReasoningEffort({
+        agent: {
+          "sdd-init": { model: "openai/gpt-5", reasoningEffort: "high", options: { reasoningEffort: "high" } },
+          "sdd-apply": { model: "openai/gpt-5", reasoningEffort: "low", options: { reasoningEffort: "low" } },
+          "sdd-plan": { model: "openai/gpt-5", reasoningEffort: "medium" },
+        },
+      }, {
+        models: {
+          "sdd-init": "openai/gpt-5",
+          "sdd-apply": "openai/gpt-5",
+        },
+      } as any, providers as any);
+
+      expect(next.config.agent["sdd-init"].reasoningEffort).toBeUndefined();
+      expect(next.config.agent["sdd-init"].options.reasoningEffort).toBeUndefined();
+      expect(next.config.agent["sdd-apply"].reasoningEffort).toBeUndefined();
+      expect(next.config.agent["sdd-apply"].options.reasoningEffort).toBeUndefined();
+      expect(next.config.agent["sdd-plan"].reasoningEffort).toBe("medium");
+      expect(next.appliedAgents).toEqual([]);
+      expect(next.clearedAgents.sort()).toEqual(["sdd-apply", "sdd-init"]);
+      expect(next.warnings).toEqual([]);
+    });
+
+    it("clears stale orchestrator reasoning effort using updated runtime canonical alias when configs are absent", () => {
+      const policy = getOrchestratorPolicy(["gentle-orchestrator", "sdd-init"]);
+      const next = applyProfileReasoningEffort({
+        agent: {
+          "gentle-orchestrator": { model: "openai/gpt-5", reasoningEffort: "high", options: { reasoningEffort: "high" } },
+        },
+      }, {
+        models: {
+          "sdd-orchestrator": "openai/gpt-5",
+        },
+      } as any, providers as any, policy);
+
+      expect(next.config.agent["gentle-orchestrator"].reasoningEffort).toBeUndefined();
+      expect(next.config.agent["gentle-orchestrator"].options.reasoningEffort).toBeUndefined();
+      expect(next.config.agent["sdd-orchestrator"]).toBeUndefined();
+      expect(next.appliedAgents).toEqual([]);
+      expect(next.clearedAgents).toEqual(["gentle-orchestrator"]);
+      expect(next.warnings).toEqual([]);
     });
   });
 });
