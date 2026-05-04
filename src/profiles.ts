@@ -154,7 +154,7 @@ function extractPersistedProfileExtras(raw: unknown): Record<string, unknown> {
 function normalizePersistedProfileData(profile: ProfileData, policy?: OrchestratorPolicy): ProfileData {
   const models = normalizeProfileModels(profile?.models, policy);
   const fallback = extractSddFallbackModels({ fallback: profile?.fallback || {} });
-  const configs = normalizeProfileConfigs(profile?.configs);
+  const configs = normalizeProfileConfigs(profile?.configs, policy);
 
   return {
     ...extractPersistedProfileExtras(profile),
@@ -260,8 +260,8 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
   }
 
   const fallback = extractSddFallbackModels(raw);
-  const configs = normalizeProfileConfigs(raw?.configs);
   const policy = getOrchestratorPolicy(Object.keys(raw?.agent || raw?.models || raw || {}));
+  const configs = normalizeProfileConfigs(raw?.configs, policy);
   return {
     ...extractPersistedProfileExtras(raw),
     models: canonicalizeProfileModels(models, policy),
@@ -1052,7 +1052,8 @@ export function applyProfileDataToConfig(currentConfig: any, profile: ProfileDat
   const withPrimaryModels = applyProfileModelsToConfig(currentConfig, profile.models || {});
   const fallbackModels = profile.fallback || {};
   const withFallback = syncSddFallbackAgents(withPrimaryModels, fallbackModels);
-  return applyProfileReasoningEffort(withFallback, profile, []).config;
+  const policy = getOrchestratorPolicy(Object.keys(withFallback?.agent || {}), withFallback?.default_agent);
+  return applyProfileReasoningEffort(withFallback, profile, [], policy).config;
 }
 
 /**
@@ -1102,7 +1103,7 @@ export async function activateProfileFile(api: any, profilePath: string, profile
     }
 
     const nextConfigWithFallback = syncSddFallbackAgents(nextConfigWithModels, profileData.fallback || {});
-    const reasoningResult = applyProfileReasoningEffort(nextConfigWithFallback, profileData, api?.state?.provider || []);
+    const reasoningResult = applyProfileReasoningEffort(nextConfigWithFallback, profileData, api?.state?.provider || [], policy);
     const nextConfig = reasoningResult.config;
 
     const result = await api.client.global.config.update({

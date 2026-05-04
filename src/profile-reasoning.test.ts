@@ -5,6 +5,7 @@ import {
   normalizeProfileConfigs,
   updateProfileReasoningEffort,
 } from "./profile-reasoning";
+import { getOrchestratorPolicy } from "./orchestrator";
 
 describe("profile reasoning helpers", () => {
   describe("buildReasoningEditState", () => {
@@ -73,6 +74,28 @@ describe("profile reasoning helpers", () => {
     it("returns undefined for empty or invalid config maps", () => {
       expect(normalizeProfileConfigs(undefined)).toBeUndefined();
       expect(normalizeProfileConfigs({ "sdd-apply": { reasoningEffort: "   " } } as any)).toBeUndefined();
+    });
+
+    it("canonicalizes orchestrator aliases to gentle-orchestrator in updated runtime policy", () => {
+      const policy = getOrchestratorPolicy(["gentle-orchestrator", "sdd-init"]);
+      const normalized = normalizeProfileConfigs({
+        "sdd-orchestrator": { reasoningEffort: "high" },
+      } as any, policy);
+
+      expect(normalized).toEqual({
+        "gentle-orchestrator": { reasoningEffort: "high" },
+      });
+    });
+
+    it("canonicalizes orchestrator aliases to sdd-orchestrator in legacy runtime policy", () => {
+      const policy = getOrchestratorPolicy(["sdd-orchestrator", "sdd-init"]);
+      const normalized = normalizeProfileConfigs({
+        "gentle-orchestrator": { reasoningEffort: "low" },
+      } as any, policy);
+
+      expect(normalized).toEqual({
+        "sdd-orchestrator": { reasoningEffort: "low" },
+      });
     });
   });
 
@@ -161,6 +184,38 @@ describe("profile reasoning helpers", () => {
 
       expect(missingMetadata.appliedAgents).toEqual([]);
       expect(missingMetadata.warnings[0]).toContain("metadata");
+    });
+
+    it("applies orchestrator reasoning effort using updated runtime canonical alias", () => {
+      const policy = getOrchestratorPolicy(["gentle-orchestrator", "sdd-init"]);
+      const next = applyProfileReasoningEffort({
+        agent: {
+          "gentle-orchestrator": { model: "openai/gpt-5" },
+        },
+      }, {
+        models: { "sdd-orchestrator": "openai/gpt-5" },
+        configs: { "sdd-orchestrator": { reasoningEffort: "high" } },
+      } as any, providers as any, policy);
+
+      expect(next.config.agent["gentle-orchestrator"].reasoningEffort).toBe("high");
+      expect(next.config.agent["sdd-orchestrator"]).toBeUndefined();
+      expect(next.appliedAgents).toEqual(["gentle-orchestrator"]);
+    });
+
+    it("applies orchestrator reasoning effort using legacy runtime canonical alias", () => {
+      const policy = getOrchestratorPolicy(["sdd-orchestrator", "sdd-init"]);
+      const next = applyProfileReasoningEffort({
+        agent: {
+          "sdd-orchestrator": { model: "openai/gpt-5" },
+        },
+      }, {
+        models: { "gentle-orchestrator": "openai/gpt-5" },
+        configs: { "gentle-orchestrator": { reasoningEffort: "low" } },
+      } as any, providers as any, policy);
+
+      expect(next.config.agent["sdd-orchestrator"].reasoningEffort).toBe("low");
+      expect(next.config.agent["gentle-orchestrator"]).toBeUndefined();
+      expect(next.appliedAgents).toEqual(["sdd-orchestrator"]);
     });
   });
 });

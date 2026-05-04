@@ -9,6 +9,7 @@ import {
   isFallbackEligibleSddAgent,
   resolveModelInfo,
   parseActiveProfileFromRaw,
+  resolveSessionActiveModel,
 } from './utils';
 
 describe('utils logic', () => {
@@ -169,6 +170,22 @@ describe('utils logic', () => {
     it('should parse valid agent config', () => {
       const raw = JSON.stringify({
         agent: {
+          'sdd-test': { model: 'openai/gpt-4', reasoningEffort: 'high' }
+        }
+      });
+      const result = parseActiveProfileFromRaw(raw, mockApi);
+      expect(result).toEqual({
+        modelId: 'openai/gpt-4',
+        modelName: 'GPT-4',
+        providerName: 'OpenAI',
+        contextLimit: 128000,
+        reasoningEffort: 'high'
+      });
+    });
+
+    it('should omit reasoning effort when not present', () => {
+      const raw = JSON.stringify({
+        agent: {
           'sdd-test': { model: 'openai/gpt-4' }
         }
       });
@@ -177,8 +194,9 @@ describe('utils logic', () => {
         modelId: 'openai/gpt-4',
         modelName: 'GPT-4',
         providerName: 'OpenAI',
-        contextLimit: 128000
+        contextLimit: 128000,
       });
+      expect(result).not.toHaveProperty('reasoningEffort');
     });
 
     it('should fallback to "model" key if "agent" is missing', () => {
@@ -233,8 +251,47 @@ describe('utils logic', () => {
           agent: {
             'sdd-test': {}
           }
-        });
-        expect(parseActiveProfileFromRaw(raw, mockApi)).toBe(null);
       });
+      expect(parseActiveProfileFromRaw(raw, mockApi)).toBe(null);
+      });
+  });
+
+  describe('resolveSessionActiveModel', () => {
+    it('should include reasoning effort from active user agent config', () => {
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              models: {
+                'gpt-4': { name: 'GPT-4', limit: { context: 128000 } }
+              }
+            }
+          ],
+          config: {
+            agent: {
+              'sdd-orchestrator': {
+                model: 'openai/gpt-4',
+                reasoningEffort: 'medium',
+              }
+            }
+          },
+          session: {
+            messages: vi.fn().mockReturnValue([
+              { role: 'user', agent: 'sdd-orchestrator' }
+            ])
+          }
+        }
+      };
+
+      expect(resolveSessionActiveModel(api, 'session-1')).toEqual({
+        modelId: 'openai/gpt-4',
+        modelName: 'GPT-4',
+        providerName: 'OpenAI',
+        contextLimit: 128000,
+        reasoningEffort: 'medium',
+      });
+    });
   });
 });

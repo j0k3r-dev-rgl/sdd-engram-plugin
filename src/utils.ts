@@ -102,7 +102,10 @@ export function resolveModelInfo(api: any, modelId: string): string {
   return `${modelId}${ctxStr}`;
 }
 
-function resolveModelState(api: any, providerId: string, modelKey: string): ActiveProfileState {
+function resolveModelState(api: any, providerId: string, modelKey: string, reasoningEffort?: string): ActiveProfileState {
+  const normalizedEffort = typeof reasoningEffort === "string" && reasoningEffort.trim()
+    ? reasoningEffort.trim()
+    : undefined;
   const providers = api.state.provider || [];
   const provider = providers.find((p: any) => p.id === providerId);
 
@@ -112,6 +115,7 @@ function resolveModelState(api: any, providerId: string, modelKey: string): Acti
       modelName: modelKey,
       providerName: providerId,
       contextLimit: null,
+      ...(normalizedEffort ? { reasoningEffort: normalizedEffort } : {}),
     };
   }
 
@@ -121,16 +125,19 @@ function resolveModelState(api: any, providerId: string, modelKey: string): Acti
     modelName: modelDef?.name || modelKey,
     providerName: provider.name || provider.id,
     contextLimit: modelDef?.limit?.context || null,
+    ...(normalizedEffort ? { reasoningEffort: normalizedEffort } : {}),
   };
 }
 
 function resolveAgentModelState(api: any, agentName?: string, fallbackModel?: { providerID: string; modelID: string }): ActiveProfileState | null {
   if (agentName) {
-    const configuredModelId = api.state.config?.agent?.[agentName]?.model;
+    const agentConfig = api.state.config?.agent?.[agentName] || {};
+    const configuredModelId = agentConfig?.model;
+    const reasoningEffort = agentConfig?.reasoningEffort;
     if (typeof configuredModelId === "string" && configuredModelId) {
       const [providerId, ...rest] = configuredModelId.split("/");
       const modelKey = rest.join("/");
-      return resolveModelState(api, providerId, modelKey);
+      return resolveModelState(api, providerId, modelKey, reasoningEffort);
     }
   }
 
@@ -201,11 +208,12 @@ export function parseActiveProfileFromRaw(raw: string, api: any): ActiveProfileS
       agentNames[0];
 
     const modelId = agentConfigs[firstAgent]?.model;
+    const reasoningEffort = agentConfigs[firstAgent]?.reasoningEffort;
     if (!modelId) return null;
 
     const [providerId, ...rest] = modelId.split("/");
     const modelKey = rest.join("/");
-    return resolveModelState(api, providerId, modelKey);
+    return resolveModelState(api, providerId, modelKey, reasoningEffort);
   } catch {
     return null;
   }

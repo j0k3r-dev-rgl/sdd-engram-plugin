@@ -6,10 +6,12 @@ import { buildProfileDetailAgentSections, resolveRuntimeOrchestratorPolicy, buil
 import { resolveProfileDetailSelectionAction } from './dialogs';
 import {
   PROFILE_DETAIL_SUBMENU,
+  createProfileDetailDialogProps,
   buildFallbackSubmenuOptions,
   buildPrimaryModelSubmenuOptions,
   buildProfileDetailHubOptions,
   buildReasoningSubmenuOptions,
+  returnToProfileDetailTarget,
   resolveProfileDetailNavigationAction,
 } from './dialogs';
 import { getOrchestratorPolicy } from './orchestrator';
@@ -321,7 +323,7 @@ describe('dialog pure builders', () => {
     expect(showReasoning).not.toHaveBeenCalled();
   });
 
-  it('runtime: submenu routing preserves edit semantics and persists only on explicit edit confirmation', () => {
+  it('runtime: submenu routing preserves origin when opening detail pickers', () => {
     const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
     const profileOpt = { title: 'team', value: 'team.json' };
     const profileData = {
@@ -342,9 +344,90 @@ describe('dialog pure builders', () => {
     fallback.onSelect({ value: 'fallback:sdd-apply' });
     reasoning.onSelect({ value: 'reasoning:sdd-apply' });
 
-    expect(showProvider).toHaveBeenNthCalledWith(1, api, profileOpt, 'sdd-apply', 'model');
-    expect(showProvider).toHaveBeenNthCalledWith(2, api, profileOpt, 'sdd-apply', 'fallback');
-    expect(showReasoning).toHaveBeenCalledWith(api, profileOpt, 'sdd-apply');
+    expect(showProvider).toHaveBeenNthCalledWith(1, api, profileOpt, 'sdd-apply', 'model', 'primary');
+    expect(showProvider).toHaveBeenNthCalledWith(2, api, profileOpt, 'sdd-apply', 'fallback', 'fallback');
+    expect(showReasoning).toHaveBeenCalledWith(api, profileOpt, 'sdd-apply', 'reasoning');
     expect(showHub).not.toHaveBeenCalled();
+  });
+
+  it('runtime: inline primary model row from hub opens provider picker with hub return target', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {}, 'sdd-design': {} } }, provider: [] } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profilePath = '/tmp/team.json';
+    const profileData = {
+      models: { 'sdd-apply': 'openai/gpt-4.1', 'sdd-design': 'openai/gpt-4.1-mini' },
+      fallback: {},
+      configs: {},
+    } as any;
+    const sections = buildProfileDetailAgentSections(api.state.config, profileData);
+
+    const showProfileList = vi.fn();
+    const showProvider = vi.fn();
+
+    const props = createProfileDetailDialogProps(api, profileOpt, profilePath, profileData, sections, {
+      showProfileList,
+      showProviderPickerForAgent: showProvider,
+    });
+
+    props.onSelect({ value: 'model:sdd-apply' });
+
+    expect(showProvider).toHaveBeenCalledWith(api, profileOpt, 'sdd-apply', 'model', 'hub');
+    expect(showProfileList).not.toHaveBeenCalled();
+  });
+
+  it('returns to the requested immediate submenu target instead of profile hub', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {} } } } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const profileData = { models: {}, fallback: {}, configs: {} } as any;
+    const sections = { sddAgents: [], fallbackAgents: [], sddAgentNames: [], policy: { canonicalName: 'sdd-orchestrator' } } as any;
+    const showHub = vi.fn();
+    const showPrimary = vi.fn();
+    const showReasoning = vi.fn();
+    const showFallback = vi.fn();
+
+    returnToProfileDetailTarget(api, profileOpt, 'primary', {
+      showProfileDetail: showHub,
+      readProfileData: () => profileData,
+      buildProfileDetailAgentSections: () => sections,
+      showProfileDetailSubmenuPrimary: showPrimary,
+      showProfileDetailSubmenuReasoning: showReasoning,
+      showProfileDetailSubmenuFallback: showFallback,
+    });
+    returnToProfileDetailTarget(api, profileOpt, 'reasoning', {
+      showProfileDetail: showHub,
+      readProfileData: () => profileData,
+      buildProfileDetailAgentSections: () => sections,
+      showProfileDetailSubmenuPrimary: showPrimary,
+      showProfileDetailSubmenuReasoning: showReasoning,
+      showProfileDetailSubmenuFallback: showFallback,
+    });
+    returnToProfileDetailTarget(api, profileOpt, 'fallback', {
+      showProfileDetail: showHub,
+      readProfileData: () => profileData,
+      buildProfileDetailAgentSections: () => sections,
+      showProfileDetailSubmenuPrimary: showPrimary,
+      showProfileDetailSubmenuReasoning: showReasoning,
+      showProfileDetailSubmenuFallback: showFallback,
+    });
+
+    expect(showPrimary).toHaveBeenCalledWith(api, profileOpt, profileData, sections);
+    expect(showReasoning).toHaveBeenCalledWith(api, profileOpt, profileData, sections);
+    expect(showFallback).toHaveBeenCalledWith(api, profileOpt, profileData, sections);
+    expect(showHub).not.toHaveBeenCalled();
+  });
+
+  it('falls back to profile hub when submenu return cannot be resolved', () => {
+    const api = { state: { config: { agent: { 'sdd-apply': {} } } } } as any;
+    const profileOpt = { title: 'team', value: 'team.json' };
+    const showHub = vi.fn();
+
+    returnToProfileDetailTarget(api, profileOpt, 'reasoning', {
+      showProfileDetail: showHub,
+      readProfileData: () => {
+        throw new Error('read failed');
+      },
+    });
+
+    expect(showHub).toHaveBeenCalledWith(api, profileOpt);
   });
 });

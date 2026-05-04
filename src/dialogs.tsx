@@ -92,6 +92,40 @@ export const PROFILE_DETAIL_SUBMENU = {
   FALLBACK: "__submenu_fallback__",
 } as const;
 
+export type ProfileDetailReturnTarget = "hub" | "primary" | "reasoning" | "fallback";
+
+export function returnToProfileDetailTarget(
+  api: any,
+  profileOpt: any,
+  returnTarget: ProfileDetailReturnTarget = "hub",
+  deps?: any
+) {
+  const showHub = deps?.showProfileDetail || showProfileDetailFn;
+  const readProfile = deps?.readProfileData || readProfileData;
+  const buildSections = deps?.buildProfileDetailAgentSections || buildProfileDetailAgentSections;
+  const showPrimary = deps?.showProfileDetailSubmenuPrimary || showProfileDetailSubmenuPrimary;
+  const showReasoning = deps?.showProfileDetailSubmenuReasoning || showProfileDetailSubmenuReasoning;
+  const showFallback = deps?.showProfileDetailSubmenuFallback || showProfileDetailSubmenuFallback;
+
+  if (returnTarget === "hub") {
+    showHub(api, profileOpt);
+    return;
+  }
+
+  try {
+    const { profilesDir } = resolvePaths();
+    const profilePath = path.join(profilesDir, profileOpt.value);
+    const profileData = readProfile(profilePath);
+    const sections = buildSections(api.state.config, profileData);
+
+    if (returnTarget === "primary") showPrimary(api, profileOpt, profileData, sections);
+    else if (returnTarget === "reasoning") showReasoning(api, profileOpt, profileData, sections);
+    else showFallback(api, profileOpt, profileData, sections);
+  } catch {
+    showHub(api, profileOpt);
+  }
+}
+
 export function resolveProfileDetailNavigationAction(optionValue: string):
   | { action: "submenu-primary" }
   | { action: "submenu-reasoning" }
@@ -592,36 +626,73 @@ export function showProfileDetail(api: any, profileOpt: any) {
     const profilePath = path.join(profilesDir, profileOpt.value);
     const profileData = readProfileData(profilePath);
     const sections = buildProfileDetailAgentSections(api.state.config, profileData);
-    const options = buildProfileDetailHubOptions(api, profileOpt, profileData);
-
     api.ui.dialog.replace(() => (
       <api.ui.DialogSelect
-        title={`Profile: ${profileOpt.title}`}
-        options={options}
-        onSelect={(opt: any) => {
-          if (opt.value === "__back__") showProfileListFn(api);
-          else if (opt.value === "__assign__") handleActivateProfile(api, profilePath, profileOpt.title);
-          else if (opt.value === "__delete__") showDeleteProfile(api, profileOpt);
-          else if (opt.value === "__rename__") showRenameProfile(api, profileOpt);
-          else if (opt.value === "__bulk_actions__") showBulkProfileActions(api, profileOpt);
-          else if (opt.value === "__profile_versions__") showProfileVersions(api, profileOpt);
-          else {
-            const navAction = resolveProfileDetailNavigationAction(opt.value);
-            if (navAction.action === "submenu-primary") {
-              showProfileDetailSubmenuPrimary(api, profileOpt, profileData, sections);
-            } else if (navAction.action === "submenu-reasoning") {
-              showProfileDetailSubmenuReasoning(api, profileOpt, profileData, sections);
-            } else if (navAction.action === "submenu-fallback") {
-              showProfileDetailSubmenuFallback(api, profileOpt, profileData, sections);
-            }
-          }
-        }}
-        onCancel={() => showProfileListFn(api)}
+        {...createProfileDetailDialogProps(api, profileOpt, profilePath, profileData, sections)}
       />
     ));
   } catch (e) {
     api.ui.toast({ title: "Error", message: "Failed to read profile details", variant: "error" });
   }
+}
+
+export function createProfileDetailDialogProps(
+  api: any,
+  profileOpt: any,
+  profilePath: string,
+  profileData: any,
+  sections: any,
+  deps?: any,
+) {
+  const showProfileList = deps?.showProfileList || showProfileListFn;
+  const activateProfile = deps?.handleActivateProfile || handleActivateProfile;
+  const showDelete = deps?.showDeleteProfile || showDeleteProfile;
+  const showRename = deps?.showRenameProfile || showRenameProfile;
+  const showBulk = deps?.showBulkProfileActions || showBulkProfileActions;
+  const showVersions = deps?.showProfileVersions || showProfileVersions;
+  const showPrimarySubmenu = deps?.showProfileDetailSubmenuPrimary || showProfileDetailSubmenuPrimary;
+  const showReasoningSubmenu = deps?.showProfileDetailSubmenuReasoning || showProfileDetailSubmenuReasoning;
+  const showFallbackSubmenu = deps?.showProfileDetailSubmenuFallback || showProfileDetailSubmenuFallback;
+  const showProvider = deps?.showProviderPickerForAgent || showProviderPickerForAgent;
+  const showReasoning = deps?.showReasoningEffortPicker || showReasoningEffortPicker;
+
+  return {
+    title: `Profile: ${profileOpt.title}`,
+    options: buildProfileDetailHubOptions(api, profileOpt, profileData),
+    onSelect: (opt: any) => {
+      if (opt.value === "__back__") showProfileList(api);
+      else if (opt.value === "__assign__") activateProfile(api, profilePath, profileOpt.title);
+      else if (opt.value === "__delete__") showDelete(api, profileOpt);
+      else if (opt.value === "__rename__") showRename(api, profileOpt);
+      else if (opt.value === "__bulk_actions__") showBulk(api, profileOpt);
+      else if (opt.value === "__profile_versions__") showVersions(api, profileOpt);
+      else {
+        const navAction = resolveProfileDetailNavigationAction(opt.value);
+        if (navAction.action === "submenu-primary") {
+          showPrimarySubmenu(api, profileOpt, profileData, sections);
+          return;
+        }
+        if (navAction.action === "submenu-reasoning") {
+          showReasoningSubmenu(api, profileOpt, profileData, sections);
+          return;
+        }
+        if (navAction.action === "submenu-fallback") {
+          showFallbackSubmenu(api, profileOpt, profileData, sections);
+          return;
+        }
+
+        const selectionAction = resolveProfileDetailSelectionAction(opt.value);
+        if (selectionAction.action === "model") {
+          showProvider(api, profileOpt, selectionAction.agentName, "model", "hub");
+        } else if (selectionAction.action === "reasoning") {
+          showReasoning(api, profileOpt, selectionAction.agentName, "hub");
+        } else if (selectionAction.action === "fallback") {
+          showProvider(api, profileOpt, selectionAction.agentName, "fallback", "hub");
+        }
+      }
+    },
+    onCancel: () => showProfileList(api),
+  };
 }
 
 function showProfileDetailSubmenuPrimary(api: any, profileOpt: any, profileData: any, sections?: any) {
@@ -646,10 +717,10 @@ export function createPrimarySubmenuDialogProps(api: any, profileOpt: any, profi
     title: `Primary models › ${profileOpt.title}`,
     options: buildPrimaryModelSubmenuOptions(profileData, sections, api),
     onSelect: (opt: any) => {
-      if (opt.value === "__back__") showHub(api, profileOpt);
-      else {
-        const nextAction = resolveProfileDetailSelectionAction(opt.value);
-        if (nextAction.action === "model") showProvider(api, profileOpt, nextAction.agentName, "model");
+        if (opt.value === "__back__") showHub(api, profileOpt);
+        else {
+          const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "model") showProvider(api, profileOpt, nextAction.agentName, "model", "primary");
       }
     },
     onCancel: () => showHub(api, profileOpt),
@@ -663,10 +734,10 @@ export function createReasoningSubmenuDialogProps(api: any, profileOpt: any, pro
     title: `Reasoning effort › ${profileOpt.title}`,
     options: buildReasoningSubmenuOptions(profileData, sections),
     onSelect: (opt: any) => {
-      if (opt.value === "__back__") showHub(api, profileOpt);
-      else {
-        const nextAction = resolveProfileDetailSelectionAction(opt.value);
-        if (nextAction.action === "reasoning") showReasoning(api, profileOpt, nextAction.agentName);
+        if (opt.value === "__back__") showHub(api, profileOpt);
+        else {
+          const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "reasoning") showReasoning(api, profileOpt, nextAction.agentName, "reasoning");
       }
     },
     onCancel: () => showHub(api, profileOpt),
@@ -680,17 +751,17 @@ export function createFallbackSubmenuDialogProps(api: any, profileOpt: any, prof
     title: `Fallback models › ${profileOpt.title}`,
     options: buildFallbackSubmenuOptions(profileData, sections, api),
     onSelect: (opt: any) => {
-      if (opt.value === "__back__") showHub(api, profileOpt);
-      else {
-        const nextAction = resolveProfileDetailSelectionAction(opt.value);
-        if (nextAction.action === "fallback") showProvider(api, profileOpt, nextAction.agentName, "fallback");
+        if (opt.value === "__back__") showHub(api, profileOpt);
+        else {
+          const nextAction = resolveProfileDetailSelectionAction(opt.value);
+        if (nextAction.action === "fallback") showProvider(api, profileOpt, nextAction.agentName, "fallback", "fallback");
       }
     },
     onCancel: () => showHub(api, profileOpt),
   };
 }
 
-function showReasoningEffortPicker(api: any, profileOpt: any, agentName: string) {
+function showReasoningEffortPicker(api: any, profileOpt: any, agentName: string, returnTarget: ProfileDetailReturnTarget = "hub") {
   const { profilesDir } = resolvePaths();
   const profilePath = path.join(profilesDir, profileOpt.value);
 
@@ -702,7 +773,7 @@ function showReasoningEffortPicker(api: any, profileOpt: any, agentName: string)
 
     if (state.kind !== "selectable") {
       api.ui.toast({ title: "Reasoning Unsupported", message: buildReasoningBlockedMessage(state), variant: "warning" });
-      showProfileDetailFn(api, profileOpt);
+      returnToProfileDetailTarget(api, profileOpt, returnTarget);
       return;
     }
 
@@ -720,21 +791,21 @@ function showReasoningEffortPicker(api: any, profileOpt: any, agentName: string)
         ]}
         onSelect={(opt: any) => {
           if (opt.value === "__back__") {
-            showProfileDetailFn(api, profileOpt);
+            returnToProfileDetailTarget(api, profileOpt, returnTarget);
             return;
           }
 
           const nextProfile = updateProfileReasoningEffort(profile, agentName, opt.value === "__clear__" ? "" : opt.value);
           writeProfileData(profilePath, nextProfile, resolveRuntimeOrchestratorPolicy(api.state.config));
           api.ui.toast({ title: "Updated", message: `${agentName} reasoning effort updated`, variant: "success" });
-          showProfileDetailFn(api, profileOpt);
+          returnToProfileDetailTarget(api, profileOpt, returnTarget);
         }}
-        onCancel={() => showProfileDetailFn(api, profileOpt)}
+        onCancel={() => returnToProfileDetailTarget(api, profileOpt, returnTarget)}
       />
     ));
   } catch (e: any) {
     api.ui.toast({ title: "Error", message: `Failed to update reasoning effort: ${e.message}`, variant: "error" });
-    showProfileDetailFn(api, profileOpt);
+    returnToProfileDetailTarget(api, profileOpt, returnTarget);
   }
 }
 
@@ -1038,12 +1109,18 @@ function showConfirmRestoreProfileVersion(api: any, profileOpt: any, versionId: 
 /**
  * Displays a menu to select a provider for a specific agent in the profile
  */
-function showProviderPickerForAgent(api: any, profileOpt: any, agentName: string, mode: "model" | "fallback") {
+function showProviderPickerForAgent(
+  api: any,
+  profileOpt: any,
+  agentName: string,
+  mode: "model" | "fallback",
+  returnTarget: ProfileDetailReturnTarget = "hub"
+) {
   const providers = (api.state.provider || []).filter((p: any) => Object.keys(p.models || {}).length > 0);
 
   if (providers.length === 0) {
     api.ui.toast({ title: "No Providers", message: "No authenticated providers found.", variant: "warning" });
-    showProfileDetailFn(api, profileOpt);
+    returnToProfileDetailTarget(api, profileOpt, returnTarget);
     return;
   }
 
@@ -1059,13 +1136,13 @@ function showProviderPickerForAgent(api: any, profileOpt: any, agentName: string
         { title: "← Back", value: "__back__", category: NAV_CATEGORY },
       ]}
       onSelect={(opt: any) => {
-        if (opt.value === "__back__") showProfileDetailFn(api, profileOpt);
+        if (opt.value === "__back__") returnToProfileDetailTarget(api, profileOpt, returnTarget);
         else {
           const selected = providers.find((p: any) => p.id === opt.value);
-          showModelPickerForAgent(api, profileOpt, agentName, selected, mode);
+          showModelPickerForAgent(api, profileOpt, agentName, selected, mode, returnTarget);
         }
       }}
-      onCancel={() => showProfileDetailFn(api, profileOpt)}
+      onCancel={() => returnToProfileDetailTarget(api, profileOpt, returnTarget)}
     />
   ));
 }
@@ -1078,33 +1155,11 @@ function showModelPickerForAgent(
   profileOpt: any,
   agentName: string,
   provider: any,
-  mode: "model" | "fallback"
+  mode: "model" | "fallback",
+  returnTarget: ProfileDetailReturnTarget = "hub"
 ) {
   const models = provider.models || {};
   const modelKeys = Object.keys(models);
-
-  if (mode === "model") {
-    console.info("[sdd-engram-plugin] provider model metadata", {
-      agentName,
-      providerId: provider?.id,
-      providerName: provider?.name,
-      modelCount: modelKeys.length,
-      sampleModelKeys: modelKeys.slice(0, 10),
-      models,
-    });
-
-    for (const key of modelKeys) {
-      const model = models[key] || {};
-      console.log("[sdd-engram-plugin] model metadata detail", {
-        agentName,
-        providerId: provider?.id,
-        modelKey: key,
-        options: model.options || {},
-        capabilities: model.capabilities || {},
-        variants: model.variants || {},
-      });
-    }
-  }
 
   api.ui.dialog.replace(() => (
     <api.ui.DialogSelect
@@ -1122,10 +1177,10 @@ function showModelPickerForAgent(
         { title: "← Back", value: "__back__", category: NAV_CATEGORY },
       ]}
       onSelect={(opt: any) => {
-        if (opt.value === "__back__") showProviderPickerForAgent(api, profileOpt, agentName, mode);
-        else updateAgentModel(api, profileOpt, agentName, opt.value, mode);
+        if (opt.value === "__back__") showProviderPickerForAgent(api, profileOpt, agentName, mode, returnTarget);
+        else updateAgentModel(api, profileOpt, agentName, opt.value, mode, returnTarget);
       }}
-      onCancel={() => showProviderPickerForAgent(api, profileOpt, agentName, mode)}
+      onCancel={() => showProviderPickerForAgent(api, profileOpt, agentName, mode, returnTarget)}
     />
   ));
 }
@@ -1138,7 +1193,8 @@ function updateAgentModel(
   profileOpt: any,
   agentName: string,
   fullModelId: string,
-  mode: "model" | "fallback"
+  mode: "model" | "fallback",
+  returnTarget: ProfileDetailReturnTarget = "hub"
 ) {
   const { profilesDir } = resolvePaths();
   const profilePath = path.join(profilesDir, profileOpt.value);
@@ -1164,10 +1220,10 @@ function updateAgentModel(
         variant: result.changed ? "success" : "warning",
       });
     }
-    showProfileDetailFn(api, profileOpt);
+    returnToProfileDetailTarget(api, profileOpt, returnTarget);
   } catch (e: any) {
     api.ui.toast({ title: "Error", message: `Failed to update agent: ${e.message}`, variant: "error" });
-    showProfileDetailFn(api, profileOpt);
+    returnToProfileDetailTarget(api, profileOpt, returnTarget);
   }
 }
 

@@ -192,6 +192,42 @@ describe('profiles logic', () => {
       expect(persisted.models['sdd-orchestrator']).toBeUndefined();
     });
 
+    it('migrates legacy orchestrator reasoning config to gentle-orchestrator on write in updated runtime', () => {
+      const policy = getOrchestratorPolicy(['gentle-orchestrator', 'sdd-init']);
+
+      writeProfileData('/mock/profiles/compatible.json', {
+        models: {
+          'sdd-orchestrator': 'legacy/model',
+          'sdd-init': 'phase/model',
+        },
+        configs: {
+          'sdd-orchestrator': { reasoningEffort: 'high' },
+        },
+      } as any, policy);
+
+      const persisted = JSON.parse(String(vi.mocked(fs.writeFileSync).mock.calls[0]?.[1]));
+      expect(persisted.configs['gentle-orchestrator']?.reasoningEffort).toBe('high');
+      expect(persisted.configs['sdd-orchestrator']).toBeUndefined();
+    });
+
+    it('migrates updated orchestrator reasoning config back to sdd-orchestrator on write in legacy runtime', () => {
+      const policy = getOrchestratorPolicy(['sdd-orchestrator', 'sdd-init']);
+
+      writeProfileData('/mock/profiles/compatible.json', {
+        models: {
+          'gentle-orchestrator': 'updated/model',
+          'sdd-init': 'phase/model',
+        },
+        configs: {
+          'gentle-orchestrator': { reasoningEffort: 'low' },
+        },
+      } as any, policy);
+
+      const persisted = JSON.parse(String(vi.mocked(fs.writeFileSync).mock.calls[0]?.[1]));
+      expect(persisted.configs['sdd-orchestrator']?.reasoningEffort).toBe('low');
+      expect(persisted.configs['gentle-orchestrator']).toBeUndefined();
+    });
+
     it('preserves unrelated profile fields when reading and writing full profile data', () => {
       const mockContent = JSON.stringify({
         models: { 'sdd-init': 'gpt-4' },
@@ -2112,6 +2148,114 @@ describe('profiles logic', () => {
         title: 'Activation Warning',
         variant: 'warning',
       }));
+    });
+
+    it('applies orchestrator reasoning effort for gentle-orchestrator in updated runtime', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'sdd-orchestrator': 'openai/gpt-5' },
+            configs: { 'sdd-orchestrator': { reasoningEffort: 'high' } }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'gentle-orchestrator',
+          agent: {
+            'gentle-orchestrator': { model: 'openai/gpt-5' },
+          },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              models: {
+                'gpt-5': {
+                  capabilities: { reasoning: true },
+                  variants: {
+                    low: { reasoningEffort: 'low' },
+                    high: { reasoningEffort: 'high' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['gentle-orchestrator']?.reasoningEffort).toBe('high');
+      expect(payload.agent['sdd-orchestrator']).toBeUndefined();
+    });
+
+    it('applies orchestrator reasoning effort for sdd-orchestrator in legacy runtime', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return JSON.stringify({
+            models: { 'gentle-orchestrator': 'openai/gpt-5' },
+            configs: { 'gentle-orchestrator': { reasoningEffort: 'low' } }
+          });
+        }
+
+        return JSON.stringify({
+          default_agent: 'sdd-orchestrator',
+          agent: {
+            'sdd-orchestrator': { model: 'openai/gpt-5' },
+          },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        state: {
+          provider: [
+            {
+              id: 'openai',
+              models: {
+                'gpt-5': {
+                  capabilities: { reasoning: true },
+                  variants: {
+                    low: { reasoningEffort: 'low' },
+                    high: { reasoningEffort: 'high' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      const payload = update.mock.calls[0]?.[0]?.config;
+      expect(payload.agent['sdd-orchestrator']?.reasoningEffort).toBe('low');
+      expect(payload.agent['gentle-orchestrator']).toBeUndefined();
     });
 
     it('warns and skips reasoning apply when runtime metadata is unavailable', async () => {

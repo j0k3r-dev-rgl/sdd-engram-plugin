@@ -13,6 +13,7 @@ export type ActiveProfileState = {
   contextLimit: number | null;
   providerName: string;
   modelName: string;
+  reasoningEffort?: string;
 };
 
 /**

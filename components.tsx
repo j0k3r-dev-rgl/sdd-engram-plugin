@@ -4,6 +4,14 @@
 import { createMemo } from "solid-js";
 import { formatContext } from "./src/utils";
 
+export function formatActiveModelBadgeText(profile: any): string {
+  if (!profile) return "No SDD model active";
+  const effortLabel = typeof profile.reasoningEffort === "string" && profile.reasoningEffort.trim()
+    ? ` · effort: ${profile.reasoningEffort.trim()}`
+    : "";
+  return `${profile.modelName} · ${formatContext(profile.contextLimit)}${effortLabel}`;
+}
+
 /**
  * UI Badge component that displays information about the active SDD model
  * 
@@ -11,9 +19,7 @@ import { formatContext } from "./src/utils";
  * @param props.theme - The current UI theme configuration
  */
 export function ActiveModelBadge(props: { profile: any; theme: any }) {
-  const text = createMemo(() => props.profile 
-    ? `${props.profile.modelName} · ${formatContext(props.profile.contextLimit)}` 
-    : "No SDD model active");
+  const text = createMemo(() => formatActiveModelBadgeText(props.profile));
 
   const color = createMemo(() => props.profile 
     ? (props.theme?.primary || "#00ff00") 

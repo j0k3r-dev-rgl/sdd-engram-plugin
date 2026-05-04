@@ -3,6 +3,11 @@
 
 import type { ProfileData, ProfileConfigs } from "./types";
 import { isPrimarySddAgent, isSddFallbackAgent } from "./utils";
+import {
+  LEGACY_ORCHESTRATOR,
+  UPDATED_ORCHESTRATOR,
+  type OrchestratorPolicy,
+} from "./orchestrator";
 
 function resolveModelDefinition(providers: any[], modelId: string): any | null {
   if (!modelId || typeof modelId !== "string") return null;
@@ -44,9 +49,29 @@ export function buildReasoningEditState(
   };
 }
 
-export function normalizeProfileConfigs(configs: unknown): ProfileConfigs | undefined {
+function canonicalizeProfileConfigs(configs: ProfileConfigs, policy: OrchestratorPolicy): ProfileConfigs {
+  const next = { ...(configs || {}) };
+  const canonicalEffort =
+    next?.[policy.canonicalName]?.reasoningEffort ||
+    next?.[LEGACY_ORCHESTRATOR]?.reasoningEffort ||
+    next?.[UPDATED_ORCHESTRATOR]?.reasoningEffort;
+
+  delete next[LEGACY_ORCHESTRATOR];
+  delete next[UPDATED_ORCHESTRATOR];
+
+  if (canonicalEffort) {
+    next[policy.canonicalName] = {
+      ...(next[policy.canonicalName] || {}),
+      reasoningEffort: canonicalEffort,
+    };
+  }
+
+  return next;
+}
+
+export function normalizeProfileConfigs(configs: unknown, policy?: OrchestratorPolicy): ProfileConfigs | undefined {
   if (!configs || typeof configs !== "object" || Array.isArray(configs)) return undefined;
-  const normalized = Object.fromEntries(
+  const normalizedBase = Object.fromEntries(
     Object.entries(configs as Record<string, any>)
       .filter(([agentName]) => isPrimarySddAgent(agentName) && !isSddFallbackAgent(agentName))
       .map(([agentName, config]) => {
@@ -55,6 +80,8 @@ export function normalizeProfileConfigs(configs: unknown): ProfileConfigs | unde
       })
       .filter(Boolean) as any,
   );
+
+  const normalized = policy ? canonicalizeProfileConfigs(normalizedBase, policy) : normalizedBase;
 
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
@@ -84,7 +111,7 @@ export function updateProfileReasoningEffort(profile: ProfileData, agentName: st
   return nextProfile;
 }
 
-export function applyProfileReasoningEffort(currentConfig: any, profile: ProfileData, providers: any[]): {
+export function applyProfileReasoningEffort(currentConfig: any, profile: ProfileData, providers: any[], policy?: OrchestratorPolicy): {
   config: any;
   warnings: string[];
   appliedAgents: string[];
@@ -92,7 +119,7 @@ export function applyProfileReasoningEffort(currentConfig: any, profile: Profile
   const nextConfig = JSON.parse(JSON.stringify(currentConfig || {}));
   const warnings: string[] = [];
   const appliedAgents: string[] = [];
-  const normalizedConfigs = normalizeProfileConfigs(profile?.configs);
+  const normalizedConfigs = normalizeProfileConfigs(profile?.configs, policy);
   if (!normalizedConfigs) {
     return { config: nextConfig, warnings, appliedAgents };
   }
