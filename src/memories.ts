@@ -10,7 +10,10 @@
 
 import * as path from "node:path";
 import { resolveProjectCandidates, resolveProjectName } from "./config";
+import { createLogger } from "./logger";
 import type { EngramObservation } from "./types";
+
+const log = createLogger("memories");
 
 const ENGRAM_PORT = parseInt(process.env.ENGRAM_PORT ?? "7437");
 const ENGRAM_URL = `http://127.0.0.1:${ENGRAM_PORT}`;
@@ -88,7 +91,7 @@ export async function listProjectMemories(api: any): Promise<EngramObservation[]
       return dateB.localeCompare(dateA);
     });
   } catch (error) {
-    console.error("Failed to list project memories via Engram API:", error);
+    log.error("listProjectMemories: failed to list project memories via Engram API", error);
     return [];
   }
 }
@@ -115,7 +118,7 @@ export async function deleteProjectMemory(memoryId: number): Promise<void> {
       throw new Error(`Engram API delete returned ${res.status}: ${res.statusText}`);
     }
   } catch (error) {
-    console.error(`Failed to delete memory ${safeId} via Engram API:`, error);
+    log.error(`deleteProjectMemory: failed to delete memory ${safeId} via Engram API`, error);
     throw error;
   }
 }

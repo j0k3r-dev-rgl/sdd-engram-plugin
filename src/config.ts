@@ -12,6 +12,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { execFileSync } from "node:child_process";
+import { createLogger } from "./logger";
+
+const log = createLogger("config");
 
 /**
  * Collection of core plugin paths
@@ -51,7 +54,9 @@ export function ensureProfilesDir(): void {
   if (!fs.existsSync(profilesDir)) {
     try {
       fs.mkdirSync(profilesDir, { recursive: true });
-    } catch (e) {}
+    } catch (e) {
+      log.warn("ensureProfilesDir: failed to create profiles directory", e);
+    }
   }
 }
 

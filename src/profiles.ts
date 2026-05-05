@@ -11,11 +11,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
+import { createLogger } from "./logger";
 import {
   applyProfileReasoningEffort,
   normalizeProfileConfigs,
   updateProfileReasoningEffort,
 } from "./profile-reasoning";
+
+const log = createLogger("profiles");
 import {
   BULK_ASSIGNMENT_MODE,
   BULK_ASSIGNMENT_TARGET,
@@ -175,7 +178,12 @@ export function readProfileModels(profilePath: string): ProfileModels {
   let raw: any;
   try {
     raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
-  } catch {
+  } catch (e) {
+    if (e?.code === "ENOENT") {
+      log.debug(`readProfileModels: file does not exist ${profilePath}`);
+    } else {
+      log.warn(`readProfileModels: failed to read or parse ${profilePath}`, e);
+    }
     return {};
   }
 
@@ -213,7 +221,12 @@ export function readProfileFallbackModels(profilePath: string): ProfileFallbackM
   try {
     const raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
     return extractSddFallbackModels(raw);
-  } catch {
+  } catch (e) {
+    if (e?.code === "ENOENT") {
+      log.debug(`readProfileFallbackModels: file does not exist ${profilePath}`);
+    } else {
+      log.warn(`readProfileFallbackModels: failed to read or parse ${profilePath}`, e);
+    }
     return {};
   }
 }
@@ -225,7 +238,12 @@ export function readProfileData(profilePath: string): ProfileData {
   try {
     const rawContent = fs.readFileSync(profilePath, "utf-8").toString();
     return readProfileDataFromRaw(rawContent);
-  } catch {
+  } catch (e) {
+    if (e?.code === "ENOENT") {
+      log.debug(`readProfileData: file does not exist ${profilePath}`);
+    } else {
+      log.warn(`readProfileData: failed to read ${profilePath}`, e);
+    }
     return { models: {} };
   }
 }
@@ -234,7 +252,8 @@ function readProfileDataFromRaw(rawContent: string): ProfileData {
   let raw: any;
   try {
     raw = JSON.parse(rawContent);
-  } catch {
+  } catch (e) {
+    log.warn("readProfileDataFromRaw: failed to parse raw profile JSON", e);
     return { models: {} };
   }
 
@@ -311,7 +330,8 @@ function parseVersionId(versionId: string): { profileFile: string; versionFile: 
   const [profileFile, versionFile] = parts;
   try {
     if (profileFile !== safeProfileFileName(profileFile)) throw new Error("Invalid profile version id");
-  } catch {
+  } catch (e) {
+    log.warn(`parseVersionId: invalid profile file segment in ${versionId}`, e);
     throw new Error("Invalid profile version id");
   }
   if (path.basename(versionFile) !== versionFile || !versionFile.endsWith(".json") || versionFile.includes("..")) {
@@ -556,7 +576,8 @@ function readProfilePreviewFromRaw(beforeRaw: string): { models: ProfileModels; 
         : {},
       fallback: extractSddFallbackModels(raw),
     };
-  } catch {
+  } catch (e) {
+    log.warn("readProfilePreviewFromRaw: failed to build preview from raw profile", e);
     return buildEmptyProfilePreview();
   }
 }
@@ -904,7 +925,9 @@ export function detectActiveProfileFile(files: string[], api: any): string | und
         file,
         fallback: readProfileFallbackModels(profilePath),
       });
-    } catch (e) {}
+    } catch (e) {
+      log.warn("findActiveProfileFile: unexpected error while inspecting candidate", e);
+    }
   }
 
   if (primaryMatches.length === 1) {
@@ -1151,7 +1174,12 @@ export function listProfileFiles(): string[] {
   ensureProfilesDir();
   try {
     return fs.readdirSync(profilesDir).filter((f) => isSddProfile(f));
-  } catch {
+  } catch (e) {
+    if (e?.code === "ENOENT") {
+      log.debug(`listProfileFiles: directory does not exist ${profilesDir}`);
+    } else {
+      log.warn(`listProfileFiles: failed to read ${profilesDir}`, e);
+    }
     return [];
   }
 }
