@@ -12,7 +12,7 @@ describe('memories logic', () => {
   const mockApi = { state: { path: { directory: '/path/to/repo' } } };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mockFetch.mockReset();
   });
 
@@ -89,11 +89,42 @@ describe('memories logic', () => {
       expect(result.length).toBe(1);
     });
 
+    it('should deduplicate memories when matching IDs use different primitive types', async () => {
+      vi.mocked(resolveProjectCandidates).mockReturnValue(['repo1', 'repo2']);
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [{ id: 1, title: 'same' }]
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [{ id: '1', title: 'same duplicate' }]
+        });
+
+      const result = await listProjectMemories(mockApi);
+      expect(result.length).toBe(1);
+      expect(result[0].id).toBe(1);
+    });
+
     it('should handle API failures gracefully', async () => {
       vi.mocked(resolveProjectCandidates).mockReturnValue(['repo']);
       mockFetch.mockRejectedValue(new Error('network error'));
 
       expect(await listProjectMemories(mockApi)).toEqual([]);
+    });
+
+    it('should log candidate fetch failures before returning empty list', async () => {
+      vi.mocked(resolveProjectCandidates).mockReturnValue(['repo']);
+      const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockFetch.mockRejectedValue(new Error('network error'));
+
+      expect(await listProjectMemories(mockApi)).toEqual([]);
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[sdd-plugin][memories] listProjectMemories: failed to fetch recent observations for candidate 'repo'"),
+        expect.any(Error)
+      );
+      stderrSpy.mockRestore();
     });
   });
 

@@ -6,6 +6,7 @@ describe('logger', () => {
   const originalDebug = process.env.SDD_PLUGIN_DEBUG;
 
   beforeEach(() => {
+    vi.resetAllMocks();
     stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     delete process.env.SDD_PLUGIN_DEBUG;
   });

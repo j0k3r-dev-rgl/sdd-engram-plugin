@@ -15,7 +15,13 @@ import type { EngramObservation } from "./types";
 
 const log = createLogger("memories");
 
-const ENGRAM_PORT = parseInt(process.env.ENGRAM_PORT ?? "7437");
+const DEFAULT_ENGRAM_PORT = 7437;
+const parsedEngramPort = Number.parseInt(process.env.ENGRAM_PORT ?? String(DEFAULT_ENGRAM_PORT), 10);
+const ENGRAM_PORT = Number.isInteger(parsedEngramPort)
+  && parsedEngramPort > 0
+  && parsedEngramPort <= 65535
+  ? parsedEngramPort
+  : DEFAULT_ENGRAM_PORT;
 const ENGRAM_URL = `http://127.0.0.1:${ENGRAM_PORT}`;
 
 /**
@@ -64,7 +70,8 @@ export async function listProjectMemories(api: any): Promise<EngramObservation[]
             signal: AbortSignal.timeout(3000),
           });
           return res.ok ? await res.json() : [];
-        } catch {
+        } catch (error) {
+          log.warn(`listProjectMemories: failed to fetch recent observations for candidate '${project}'`, error);
           return [];
         }
       })
@@ -78,8 +85,9 @@ export async function listProjectMemories(api: any): Promise<EngramObservation[]
     const uniqueMemories = [];
 
     for (const memory of flatData) {
-      if (memory?.id && !seenIds.has(memory.id)) {
-        seenIds.add(memory.id);
+      const memoryId = Number(memory?.id);
+      if (memory?.id && !seenIds.has(memoryId)) {
+        seenIds.add(memoryId);
         uniqueMemories.push(normalizeMemory(memory, projectName));
       }
     }
