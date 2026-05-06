@@ -89,24 +89,6 @@ describe('memories logic', () => {
       expect(result.length).toBe(1);
     });
 
-    it('should deduplicate memories when matching IDs use different primitive types', async () => {
-      vi.mocked(resolveProjectCandidates).mockReturnValue(['repo1', 'repo2']);
-
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [{ id: 1, title: 'same' }]
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [{ id: '1', title: 'same duplicate' }]
-        });
-
-      const result = await listProjectMemories(mockApi);
-      expect(result.length).toBe(1);
-      expect(result[0].id).toBe(1);
-    });
-
     it('should handle API failures gracefully', async () => {
       vi.mocked(resolveProjectCandidates).mockReturnValue(['repo']);
       mockFetch.mockRejectedValue(new Error('network error'));
