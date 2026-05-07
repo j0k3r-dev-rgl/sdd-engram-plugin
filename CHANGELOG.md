@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.4.2...v1.5.0) (2026-05-07)
+
+
+### Features
+
+* add structured logger and wire into silent catch blocks ([#26](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/26)) ([910f406](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/910f40640bcfb81f4d9a6ec26e677c1c3b146663))
+
 ## [1.4.2](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.4.1...v1.4.2) (2026-05-04)
 
 
