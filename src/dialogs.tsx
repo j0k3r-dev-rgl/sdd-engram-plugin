@@ -16,6 +16,7 @@ import {
   ProfileVersion,
   ProfileVersionMetadata,
   NAV_CATEGORY,
+  type BadgeDisplayMode,
 } from "./types";
 import {
   resolveModelInfo,
@@ -45,9 +46,19 @@ import {
 } from "./profiles";
 import { buildReasoningEditState, updateProfileReasoningEffort } from "./profile-reasoning";
 import { deleteProjectMemory, listProjectMemories } from "./memories";
-import { setActiveProfile } from "./state";
+import {
+  badgeDisplayMode,
+  setActiveProfile,
+  setBadgeDisplayMode,
+  setShowModelBadge,
+  showModelBadge,
+} from "./state";
 import { createLogger } from "./logger";
 import { canonicalizeProfileModels, getOrchestratorPolicy, type OrchestratorPolicy } from "./orchestrator";
+
+export const BADGE_VISIBLE_KV_KEY = "sdd-show-model-badge";
+export const BADGE_DISPLAY_MODE_KV_KEY = "sdd-badge-display-mode";
+export const ACTIVE_PROFILE_NAME_KV_KEY = "sdd-active-profile-name";
 
 const log = createLogger("dialogs");
 
@@ -496,6 +507,16 @@ export function showProfilesMenu(api: any) {
           description: "Show recent Engram observations for this project.",
         },
         {
+          title: `Badge: ${showModelBadge() ? "On" : "Off"}`,
+          value: "toggle_badge_visible",
+          description: "Show or hide the badge.",
+        },
+        {
+          title: `Badge mode: ${badgeDisplayMode() === "profile" ? "Profile" : "Model"}`,
+          value: "toggle_badge_mode",
+          description: "Show model info or active profile name on the badge.",
+        },
+        {
           title: "✕ Close",
           value: "__close__",
           category: NAV_CATEGORY,
@@ -505,7 +526,21 @@ export function showProfilesMenu(api: any) {
         if (opt.value === "create") showCreateProfile(api);
         else if (opt.value === "list") showProfileListFn(api);
         else if (opt.value === "view_memories") showProjectMemoriesMenuFn(api);
-        else api.ui.dialog.clear();
+        else if (opt.value === "toggle_badge_visible") {
+          const next = !showModelBadge();
+          setShowModelBadge(next);
+          Promise.resolve().then(() => api.kv.set(BADGE_VISIBLE_KV_KEY, next)).catch((e) => {
+            log.warn(`toggle_badge_visible: failed to persist '${BADGE_VISIBLE_KV_KEY}'`, e);
+          });
+          showProfilesMenu(api);
+        } else if (opt.value === "toggle_badge_mode") {
+          const next: BadgeDisplayMode = badgeDisplayMode() === "model" ? "profile" : "model";
+          setBadgeDisplayMode(next);
+          Promise.resolve().then(() => api.kv.set(BADGE_DISPLAY_MODE_KV_KEY, next)).catch((e) => {
+            log.warn(`toggle_badge_mode: failed to persist '${BADGE_DISPLAY_MODE_KV_KEY}'`, e);
+          });
+          showProfilesMenu(api);
+        } else api.ui.dialog.clear();
       }}
       onCancel={() => api.ui.dialog.clear()}
     />
@@ -822,8 +857,15 @@ async function handleActivateProfile(api: any, profilePath: string, profileName:
   const updatedConfig = await activateProfileFile(api, profilePath, profileName);
   if (!updatedConfig) return;
 
-  // Sync global state after activation
-  setActiveProfile(parseActiveProfileFromRaw(JSON.stringify(updatedConfig), api));
+  try {
+    await api.kv.set(ACTIVE_PROFILE_NAME_KV_KEY, profileName);
+  } catch (e) {
+    log.warn(`handleActivateProfile: failed to persist active profile name`, e);
+  }
+
+  // Sync global state after activation; attach profileName so the badge can render it.
+  const next = parseActiveProfileFromRaw(JSON.stringify(updatedConfig), api);
+  setActiveProfile(next ? { ...next, profileName } : next);
 
   api.ui.dialog.replace(() => (
     <api.ui.DialogConfirm

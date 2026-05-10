@@ -11,8 +11,11 @@ export type ActiveProfileState = {
   contextLimit: number | null;
   providerName: string;
   modelName: string;
+  profileName?: string;
   reasoningEffort?: string;
 };
+
+export type BadgeDisplayMode = "model" | "profile";
 
 /**
  * Mapping of profile names to their model identifiers
