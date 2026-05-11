@@ -8,10 +8,13 @@
 
 import * as fs from "node:fs";
 import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui";
-import { createEffect, createRoot } from "solid-js";
+import { Show, createEffect, createRoot, untrack } from "solid-js";
 import { ActiveModelBadge } from "./components";
 import { resolvePaths } from "./src/config";
 import {
+	ACTIVE_PROFILE_NAME_KV_KEY,
+	BADGE_DISPLAY_MODE_KV_KEY,
+	BADGE_VISIBLE_KV_KEY,
 	registerDialogCallbacks,
 	showProfileDetail,
 	showProfileList,
@@ -22,7 +25,15 @@ import { getOrchestratorPolicy } from "./src/orchestrator";
 import { migrateProfilesForRuntimePolicy } from "./src/profiles";
 import { createLogger } from "./src/logger";
 // Direct imports to avoid barrel resolution issues in some environments
-import { activeProfile, setActiveProfile } from "./src/state";
+import {
+	activeProfile,
+	badgeDisplayMode,
+	setActiveProfile,
+	setBadgeDisplayMode,
+	setShowModelBadge,
+	showModelBadge,
+} from "./src/state";
+import type { BadgeDisplayMode } from "./src/types";
 import {
 	parseActiveProfileFromRaw,
 	resolveSessionActiveModel,
@@ -44,18 +55,49 @@ function initializeDialogs() {
 	});
 }
 
+async function readKv(api: any, key: string): Promise<unknown> {
+	try {
+		return await api?.kv?.get?.(key);
+	} catch (error) {
+		log.warn(`readKv: failed to read '${key}'`, error);
+		return undefined;
+	}
+}
+
+function isBadgeDisplayMode(value: unknown): value is BadgeDisplayMode {
+	return value === "model" || value === "profile";
+}
+
+async function loadBadgePreferences(api: any): Promise<void> {
+	const [visible, mode] = await Promise.all([
+		readKv(api, BADGE_VISIBLE_KV_KEY),
+		readKv(api, BADGE_DISPLAY_MODE_KV_KEY),
+	]);
+	const hidden = visible === false || visible === "false";
+	setShowModelBadge(!hidden);
+	setBadgeDisplayMode(isBadgeDisplayMode(mode) ? mode : "model");
+}
+
+async function readPersistedProfileName(api: any): Promise<string | undefined> {
+	const value = await readKv(api, ACTIVE_PROFILE_NAME_KV_KEY);
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /**
  * Reads the currently active profile from the local configuration file.
  *
  * @param api - The TUI API instance
  * @returns The active profile state or null if not found/invalid
  */
-function readActiveProfile(api: any) {
+async function readActiveProfile(api: any) {
 	const { configPath } = resolvePaths();
 	try {
 		if (!fs.existsSync(configPath)) return null;
 		const raw = fs.readFileSync(configPath, "utf-8");
-		return parseActiveProfileFromRaw(raw, api);
+		const profile = parseActiveProfileFromRaw(raw, api);
+		if (!profile) return null;
+		const profileName = await readPersistedProfileName(api);
+		return profileName ? { ...profile, profileName } : profile;
 	} catch (error) {
 		log.warn(`readActiveProfile: failed to read ${configPath}`, error);
 		return null;
@@ -113,19 +155,25 @@ function registerSlots(api: any) {
 						const sessionId =
 							route.name === "session" ? route.params?.sessionID : undefined;
 						return (
-							<ActiveModelBadge
-								profile={resolveDisplayedModel(api, sessionId)}
-								theme={ctx.theme.current}
-							/>
+							<Show when={showModelBadge()}>
+								<ActiveModelBadge
+									profile={resolveDisplayedModel(api, sessionId)}
+									theme={ctx.theme.current}
+									displayMode={badgeDisplayMode()}
+								/>
+							</Show>
 						);
 					});
 				},
 				sidebar_content(ctx: any) {
 					return renderSlot(api, () => (
-						<ActiveModelBadge
-							profile={resolveDisplayedModel(api, ctx.session_id)}
-							theme={ctx.theme.current}
-						/>
+						<Show when={showModelBadge()}>
+							<ActiveModelBadge
+								profile={resolveDisplayedModel(api, ctx.session_id)}
+								theme={ctx.theme.current}
+								displayMode={badgeDisplayMode()}
+							/>
+						</Show>
 					));
 				},
 			},
@@ -151,8 +199,10 @@ const tui: TuiPlugin = async (api) => {
 	);
 	migrateProfilesForRuntimePolicy(runtimePolicy);
 
+	await loadBadgePreferences(api);
+
 	// Load and set the active profile in the global state
-	const profile = readActiveProfile(api);
+	const profile = await readActiveProfile(api);
 	setActiveProfile(profile);
 
 	// Keep the active profile in sync with global config changes.
@@ -160,11 +210,16 @@ const tui: TuiPlugin = async (api) => {
 		api.lifecycle.onDispose(dispose);
 		createEffect(() => {
 			const currentConfig = api.state.config;
-			if (currentConfig) {
-				setActiveProfile(
-					parseActiveProfileFromRaw(JSON.stringify(currentConfig), api),
-				);
+			if (!currentConfig) return;
+			const next = parseActiveProfileFromRaw(JSON.stringify(currentConfig), api);
+			if (!next) {
+				setActiveProfile(null);
+				return;
 			}
+			const previousProfileName = untrack(() => activeProfile()?.profileName);
+			setActiveProfile(
+				previousProfileName ? { ...next, profileName: previousProfileName } : next,
+			);
 		});
 	});
 
