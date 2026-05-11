@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.0...v1.6.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* restore profile command access and surface config validation errors ([33977f6](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/33977f65f627d39c4b38f0963e815a8704755cc4)), closes [#31](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/31)
+
 # [1.6.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.5.1...v1.6.0) (2026-05-11)
 
 
