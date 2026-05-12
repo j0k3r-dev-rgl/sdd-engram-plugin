@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.2...v1.6.3) (2026-05-12)
+
+
+### Bug Fixes
+
+* bundle opentui solid in tui build ([a252cb0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/a252cb046f9b47b1348fb47922d78ac77bbf2c99))
+
 ## [1.6.2](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.1...v1.6.2) (2026-05-12)
 
 
