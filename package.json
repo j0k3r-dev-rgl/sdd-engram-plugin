@@ -41,19 +41,19 @@
 		"@semantic-release/github": "^12.0.8",
 		"@semantic-release/npm": "^13.1.5",
 		"@semantic-release/release-notes-generator": "^14.1.1",
-		"@types/node": "^24.12.2",
-		"@vitest/coverage-v8": "^4.1.4",
+		"@types/node": "^25.7.0",
+		"@vitest/coverage-v8": "^4.1.6",
 		"esbuild-plugin-solid": "^0.6.0",
 		"semantic-release": "^25.0.3",
-		"typescript": "^5.9.3",
+		"typescript": "^6.0.3",
 		"tsup": "^8.5.1",
-		"vitest": "^4.1.4"
+		"vitest": "^4.1.6"
 	},
 	"peerDependencies": {
 		"@opencode-ai/plugin": ">=1.14.48",
-		"@opentui/core": ">=0.2.6 <1",
-		"@opentui/keymap": ">=0.2.6 <1",
-		"@opentui/solid": ">=0.2.6 <1",
+		"@opentui/core": ">=0.2.7 <1",
+		"@opentui/keymap": ">=0.2.7 <1",
+		"@opentui/solid": ">=0.2.7 <1",
 		"solid-js": "1.9.12"
 	},
 	"engines": {
