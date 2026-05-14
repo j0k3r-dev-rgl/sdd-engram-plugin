@@ -1,3 +1,10 @@
+## [1.6.6](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.5...v1.6.6) (2026-05-14)
+
+
+### Bug Fixes
+
+* isolate tui failures from opencode host ([68ffae0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/68ffae0389d9b54f00bb669961291eb7bf54f145))
+
 ## [1.6.5](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.4...v1.6.5) (2026-05-14)
 
 
