@@ -22,6 +22,7 @@ import {
 	showProfilesMenu,
 	showProjectMemoriesMenu,
 } from "./src/dialogs";
+import { getHostVersion, safeSlotRender } from "./src/host-compat";
 import { createLogger } from "./src/logger";
 import { getOrchestratorPolicy } from "./src/orchestrator";
 import { migrateProfilesForRuntimePolicy } from "./src/profiles";
@@ -158,10 +159,10 @@ function registerProfilesCommand(api: any) {
 	});
 }
 
-function renderSlot(api: any, render: () => any) {
+function renderSlot(api: any, label: string, render: () => any) {
 	return createRoot((dispose) => {
 		api.lifecycle.onDispose(dispose);
-		return render();
+		return safeSlotRender(label, render);
 	});
 }
 
@@ -172,7 +173,7 @@ function registerSlots(api: any) {
 		api.slots.register({
 			slots: {
 				home_bottom(ctx: any) {
-					return renderSlot(api, () => {
+					return renderSlot(api, "home_bottom", () => {
 						const route = api.route.current;
 						const sessionId =
 							route.name === "session" ? route.params?.sessionID : undefined;
@@ -188,7 +189,7 @@ function registerSlots(api: any) {
 					});
 				},
 				sidebar_content(ctx: any) {
-					return renderSlot(api, () => (
+					return renderSlot(api, "sidebar_content", () => (
 						<Show when={showModelBadge()}>
 							<ActiveModelBadge
 								profile={resolveDisplayedModel(api, ctx.session_id)}
@@ -212,6 +213,8 @@ const id = "sdd-model-select";
  * Registers commands and UI slots for the plugin
  */
 const tui: TuiPlugin = async (api) => {
+	log.info(`host opencode v${getHostVersion(api)}`);
+
 	// Initialize dialog callbacks
 	initializeDialogs();
 
