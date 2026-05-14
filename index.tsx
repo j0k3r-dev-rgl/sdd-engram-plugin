@@ -22,7 +22,12 @@ import {
 	showProfilesMenu,
 	showProjectMemoriesMenu,
 } from "./src/dialogs";
-import { getHostVersion, safeSlotRender } from "./src/host-compat";
+import {
+	getHostVersion,
+	safeHostAction,
+	safeHostAsyncAction,
+	safeSlotRender,
+} from "./src/host-compat";
 import { createLogger } from "./src/logger";
 import { getOrchestratorPolicy } from "./src/orchestrator";
 import { migrateProfilesForRuntimePolicy } from "./src/profiles";
@@ -131,7 +136,7 @@ function registerProfilesCommand(api: any) {
 					category: "SDD",
 					nargs: "0",
 					run: () => {
-						openProfiles(api);
+						safeHostAction("open profiles menu", () => openProfiles(api), undefined);
 						return true;
 					},
 				},
@@ -151,7 +156,8 @@ function registerProfilesCommand(api: any) {
 					description: "Manage SDD profiles",
 					category: "SDD",
 					slash: { name: "sdd-model" },
-					onSelect: () => openProfiles(api),
+					onSelect: () =>
+						safeHostAction("open profiles menu", () => openProfiles(api), undefined),
 				},
 			]);
 			api.lifecycle.onDispose(disposeLegacy);
@@ -213,46 +219,73 @@ const id = "sdd-model-select";
  * Registers commands and UI slots for the plugin
  */
 const tui: TuiPlugin = async (api) => {
-	log.info(`host opencode v${getHostVersion(api)}`);
+	safeHostAction("log host version", () => {
+		log.info(`host opencode v${getHostVersion(api)}`);
+	}, undefined);
 
 	// Initialize dialog callbacks
-	initializeDialogs();
+	safeHostAction("initialize dialogs", initializeDialogs, undefined);
 
-	const runtimePolicy = getOrchestratorPolicy(
-		Object.keys(api?.state?.config?.agent || {}),
-		api?.state?.config?.default_agent,
+	const runtimePolicy = safeHostAction(
+		"resolve orchestrator policy",
+		() =>
+			getOrchestratorPolicy(
+				Object.keys(api?.state?.config?.agent || {}),
+				api?.state?.config?.default_agent,
+			),
+		undefined,
 	);
-	migrateProfilesForRuntimePolicy(runtimePolicy);
+	if (runtimePolicy) {
+		safeHostAction(
+			"migrate profiles for runtime policy",
+			() => migrateProfilesForRuntimePolicy(runtimePolicy),
+			undefined,
+		);
+	}
 
-	await loadBadgePreferences(api);
+	await safeHostAsyncAction(
+		"load badge preferences",
+		() => loadBadgePreferences(api),
+		undefined,
+	);
 
 	// Load and set the active profile in the global state
-	const profile = await readActiveProfile(api);
-	setActiveProfile(profile);
+	const profile = await safeHostAsyncAction(
+		"read active profile",
+		() => readActiveProfile(api),
+		null,
+	);
+	safeHostAction("set active profile", () => setActiveProfile(profile), undefined);
 
 	// Keep the active profile in sync with global config changes.
-	createRoot((dispose) => {
-		api.lifecycle.onDispose(dispose);
-		createEffect(() => {
-			const currentConfig = api.state.config;
-			if (!currentConfig) return;
-			const next = parseActiveProfileFromRaw(JSON.stringify(currentConfig), api);
-			if (!next) {
-				setActiveProfile(null);
-				return;
-			}
-			const previousProfileName = untrack(() => activeProfile()?.profileName);
-			setActiveProfile(
-				previousProfileName ? { ...next, profileName: previousProfileName } : next,
-			);
+	safeHostAction("sync active profile", () => {
+		createRoot((dispose) => {
+			api.lifecycle.onDispose(dispose);
+			createEffect(() => {
+				safeHostAction("sync active profile update", () => {
+					const currentConfig = api.state.config;
+					if (!currentConfig) return;
+					const next = parseActiveProfileFromRaw(JSON.stringify(currentConfig), api);
+					if (!next) {
+						setActiveProfile(null);
+						return;
+					}
+					const previousProfileName = untrack(() => activeProfile()?.profileName);
+					setActiveProfile(
+						previousProfileName
+							? { ...next, profileName: previousProfileName }
+							: next,
+					);
+				}, undefined);
+			});
 		});
-	});
+	}, undefined);
 
 	// Register the main command using the current OpenCode TUI keymap API.
-	registerProfilesCommand(api);
+	safeHostAction("register profiles command", () => registerProfilesCommand(api), undefined);
 
 	// Register UI slots inside a Solid root because the host slot plugin creates cleanups.
-	registerSlots(api);
+	safeHostAction("register slots", () => registerSlots(api), undefined);
 };
 
 const plugin: TuiPluginModule & { id: string } = { id, tui };
