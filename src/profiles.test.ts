@@ -2235,9 +2235,9 @@ describe('profiles logic', () => {
       await activateProfileFile(api, '/mock/profiles/team.json', 'team');
 
       const payload = update.mock.calls[0]?.[0]?.config;
-      expect(payload.agent['sdd-init']?.reasoningEffort).toBe('high');
-      expect(payload.agent['sdd-apply']?.reasoningEffort).toBeUndefined();
-      expect(payload.agent['sdd-init-fallback']?.reasoningEffort).toBeUndefined();
+      expect(payload.agent['sdd-init']?.variant).toBe('high');
+      expect(payload.agent['sdd-apply']?.variant).toBeUndefined();
+      expect(payload.agent['sdd-init-fallback']?.variant).toBeUndefined();
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Activation Warning',
         variant: 'warning',
@@ -2294,7 +2294,7 @@ describe('profiles logic', () => {
       await activateProfileFile(api, '/mock/profiles/team.json', 'team');
 
       const payload = update.mock.calls[0]?.[0]?.config;
-      expect(payload.agent['gentle-orchestrator']?.reasoningEffort).toBe('high');
+      expect(payload.agent['gentle-orchestrator']?.variant).toBe('high');
       expect(payload.agent['sdd-orchestrator']).toBeUndefined();
     });
 
@@ -2348,7 +2348,7 @@ describe('profiles logic', () => {
       await activateProfileFile(api, '/mock/profiles/team.json', 'team');
 
       const payload = update.mock.calls[0]?.[0]?.config;
-      expect(payload.agent['sdd-orchestrator']?.reasoningEffort).toBe('low');
+      expect(payload.agent['sdd-orchestrator']?.variant).toBe('low');
       expect(payload.agent['gentle-orchestrator']).toBeUndefined();
     });
 

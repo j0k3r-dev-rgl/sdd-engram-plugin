@@ -8,6 +8,7 @@
 
 import { ActiveProfileState } from "./types";
 import { getOrchestratorPolicy } from "./orchestrator";
+import { resolveEffortFromAgentVariant } from "./profile-reasoning";
 import { createLogger } from "./logger";
 
 const log = createLogger("utils");
@@ -134,7 +135,9 @@ function resolveAgentModelState(api: any, agentName?: string, fallbackModel?: { 
   if (agentName) {
     const agentConfig = api.state.config?.agent?.[agentName] || {};
     const configuredModelId = agentConfig?.model;
-    const reasoningEffort = agentConfig?.reasoningEffort;
+    const reasoningEffort =
+      agentConfig?.reasoningEffort ||
+      resolveEffortFromAgentVariant(api.state.provider || [], configuredModelId, agentConfig?.variant);
     if (typeof configuredModelId === "string" && configuredModelId) {
       const [providerId, ...rest] = configuredModelId.split("/");
       const modelKey = rest.join("/");
@@ -209,7 +212,10 @@ export function parseActiveProfileFromRaw(raw: string, api: any): ActiveProfileS
       agentNames[0];
 
     const modelId = agentConfigs[firstAgent]?.model;
-    const reasoningEffort = agentConfigs[firstAgent]?.reasoningEffort;
+    const agentEntry = agentConfigs[firstAgent] || {};
+    const reasoningEffort =
+      agentEntry.reasoningEffort ||
+      resolveEffortFromAgentVariant(api.state.provider || [], modelId, agentEntry.variant);
     if (!modelId) return null;
 
     const [providerId, ...rest] = modelId.split("/");

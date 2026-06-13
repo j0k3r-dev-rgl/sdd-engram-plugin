@@ -9,6 +9,13 @@ import {
   type OrchestratorPolicy,
 } from "./orchestrator";
 
+const KNOWN_EFFORT_TOKENS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+type ModelVariantOption = {
+  key: string;
+  effort: string;
+};
+
 function resolveModelDefinition(providers: any[], modelId: string): any | null {
   if (!modelId || typeof modelId !== "string") return null;
   const [providerId, ...rest] = modelId.split("/");
@@ -18,14 +25,63 @@ function resolveModelDefinition(providers: any[], modelId: string): any | null {
   return provider?.models?.[modelKey] || null;
 }
 
-function listReasoningEffortsFromModel(modelDef: any): string[] {
+function extractEffortFromVariantBody(variant: any, variantKey: string): string | null {
+  if (!variant || typeof variant !== "object" || variant.disabled === true) return null;
+
+  if (typeof variant.reasoningEffort === "string") {
+    const trimmed = variant.reasoningEffort.trim();
+    if (trimmed) return trimmed;
+  }
+
+  if (typeof variant.reasoning?.effort === "string") {
+    const trimmed = variant.reasoning.effort.trim();
+    if (trimmed) return trimmed;
+  }
+
+  if (typeof variant.thinkingConfig?.thinkingLevel === "string") {
+    const trimmed = variant.thinkingConfig.thinkingLevel.trim();
+    if (trimmed) return trimmed;
+  }
+
+  const normalizedKey = variantKey.trim().toLowerCase();
+  if (KNOWN_EFFORT_TOKENS.has(normalizedKey)) return normalizedKey;
+
+  return null;
+}
+
+function listModelVariantOptions(modelDef: any): ModelVariantOption[] {
   if (!modelDef || modelDef?.capabilities?.reasoning !== true) return [];
   const variants = modelDef?.variants;
   if (!variants || typeof variants !== "object") return [];
-  const values = Object.values(variants)
-    .map((variant: any) => (typeof variant?.reasoningEffort === "string" ? variant.reasoningEffort.trim() : ""))
-    .filter(Boolean);
+
+  const options: ModelVariantOption[] = [];
+  for (const [key, variant] of Object.entries(variants)) {
+    const effort = extractEffortFromVariantBody(variant, key);
+    if (effort) options.push({ key, effort });
+  }
+  return options;
+}
+
+function listReasoningEffortsFromModel(modelDef: any): string[] {
+  const values = listModelVariantOptions(modelDef).map((option) => option.effort);
   return Array.from(new Set(values)).sort();
+}
+
+function resolveVariantKeyForEffort(modelDef: any, effort: string): string | null {
+  const matches = listModelVariantOptions(modelDef).filter((option) => option.effort === effort);
+  if (matches.length === 0) return null;
+
+  const keyMatch = matches.find((option) => option.key.toLowerCase() === effort.toLowerCase());
+  return (keyMatch || matches[0]).key;
+}
+
+export function resolveEffortFromAgentVariant(providers: any[], modelId: string, variantKey?: string): string | undefined {
+  if (typeof variantKey !== "string" || !variantKey.trim()) return undefined;
+  const modelDef = resolveModelDefinition(providers, modelId);
+  if (!modelDef) return undefined;
+
+  const option = listModelVariantOptions(modelDef).find((entry) => entry.key === variantKey.trim());
+  return option?.effort;
 }
 
 export function buildReasoningEditState(
@@ -113,21 +169,23 @@ export function updateProfileReasoningEffort(profile: ProfileData, agentName: st
 
 function clearAgentReasoningEffort(agentConfig: any) {
   if (!agentConfig || typeof agentConfig !== "object") return;
+  delete agentConfig.variant;
   delete agentConfig.reasoningEffort;
   if (agentConfig.options && typeof agentConfig.options === "object") {
     delete agentConfig.options.reasoningEffort;
   }
 }
 
-function applyAgentReasoningEffort(agentConfig: any, effort: string) {
+function applyAgentReasoningEffort(agentConfig: any, variantKey: string) {
   const next = {
     ...(agentConfig || {}),
-    reasoningEffort: effort,
-    options: {
-      ...((agentConfig && typeof agentConfig.options === "object") ? agentConfig.options : {}),
-      reasoningEffort: effort,
-    },
+    variant: variantKey,
   };
+  delete next.reasoningEffort;
+  if (next.options && typeof next.options === "object") {
+    const { reasoningEffort: _removed, ...restOptions } = next.options;
+    next.options = restOptions;
+  }
   return next;
 }
 
@@ -194,8 +252,18 @@ export function applyProfileReasoningEffort(currentConfig: any, profile: Profile
       continue;
     }
 
+    const variantKey = resolveVariantKeyForEffort(modelDef, effort);
+    if (!variantKey) {
+      if (nextConfig?.agent?.[agentName] && typeof nextConfig.agent[agentName] === "object") {
+        clearAgentReasoningEffort(nextConfig.agent[agentName]);
+        clearedAgents.push(agentName);
+      }
+      warnings.push(`Skipped reasoning effort for ${agentName}: no variant key resolved for '${effort}' on ${modelId}.`);
+      continue;
+    }
+
     if (!nextConfig.agent) nextConfig.agent = {};
-    nextConfig.agent[agentName] = applyAgentReasoningEffort(nextConfig.agent[agentName], effort);
+    nextConfig.agent[agentName] = applyAgentReasoningEffort(nextConfig.agent[agentName], variantKey);
     appliedAgents.push(agentName);
   }
 

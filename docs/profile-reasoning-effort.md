@@ -14,7 +14,7 @@ This document captures what we verified in opencode runtime metadata and what we
 |---|---|
 | Model source | The plugin reads provider/model metadata from `api.state.provider[].models`. |
 | Capability signal | Models expose `capabilities.reasoning`. |
-| Effort source | Valid effort values come from `model.variants[*].reasoningEffort`, not from a flat `effort` field. |
+| Effort source | Valid effort values are normalized from variant bodies: `reasoningEffort`, `reasoning.effort`, `thinkingConfig.thinkingLevel`, or known variant keys (`low`, `medium`, `high`, etc.). |
 | Variability | Not all models expose the same effort set; some include `none`, others start at `low`. |
 | Fallback scope | The requested feature should apply only to primary agents, not fallback agents. |
 
@@ -44,13 +44,13 @@ This document captures what we verified in opencode runtime metadata and what we
 - Add a new action such as `Edit reasoning effort` for primary agents.
 - Resolve the currently assigned `provider/model`.
 - Read runtime metadata from `api.state.provider`.
-- If the model supports reasoning and exposes variants with `reasoningEffort`, show only those valid options.
+- If the model supports reasoning and exposes parseable variant metadata, show only those valid options.
 - If the model does not support reasoning effort, show a notification and do not persist invalid config.
 
 ### Activation
 
 - Apply `model` exactly as today.
-- Apply `configs[agent].reasoningEffort` only for primary agents.
+- Apply `configs[agent].reasoningEffort` only for primary agents by resolving the matching opencode variant key and setting `agent.variant`.
 - Do not apply reasoning effort to generated fallback agents unless explicitly designed later.
 
 ## Proposed runtime decision rules
@@ -59,7 +59,7 @@ This document captures what we verified in opencode runtime metadata and what we
 |---|---|
 | No model assigned | Do not show the effort picker; explain that a primary model must be selected first. |
 | `capabilities.reasoning !== true` | Show a warning that the selected model does not support reasoning effort. |
-| No variants with `reasoningEffort` | Show a warning that no effort variants are available for that model. |
+| No parseable variant metadata | Show a warning that no effort variants are available for that model. |
 | Variants available | Derive selectable options dynamically from runtime metadata. |
 
 ## Risks and constraints
