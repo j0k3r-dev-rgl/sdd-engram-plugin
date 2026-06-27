@@ -12,7 +12,7 @@ import { createLogger } from "./logger";
 
 const log = createLogger("utils");
 
-const MANAGED_SDD_AGENT_EXCEPTIONS = new Set(["gentle-orchestrator"]);
+const MANAGED_SDD_AGENT_EXCEPTIONS = new Set(["gentle-orchestrator", "jd-judge-a", "jd-judge-b", "jd-fix-agent"]);
 const FALLBACK_INELIGIBLE_AGENTS = new Set(["sdd-orchestrator", "gentle-orchestrator"]);
 
 /**

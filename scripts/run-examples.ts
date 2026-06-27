@@ -98,8 +98,10 @@ function testExternalPromptInjection(repoRoot: string, tempDir: string): TestRes
   }
 }
 
+const MANAGED_SDD_AGENT_EXCEPTIONS = new Set(["gentle-orchestrator", "jd-judge-a", "jd-judge-b", "jd-fix-agent"]);
+
 function isManagedSddAgent(name: string): boolean {
-  return name.startsWith("sdd-");
+  return name.startsWith("sdd-") || MANAGED_SDD_AGENT_EXCEPTIONS.has(name);
 }
 
 function isFallbackEligibleSddAgent(name: string): boolean {
