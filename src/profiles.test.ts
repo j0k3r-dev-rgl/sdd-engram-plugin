@@ -73,20 +73,25 @@ describe('profiles logic', () => {
   });
 
   describe('extractSddAgentModels', () => {
-    it('should extract models for primary SDD agents', () => {
+    it('should extract models for primary managed agents', () => {
       const config = {
         agent: {
           'sdd-init': { model: 'gpt-4' },
           'sdd-apply': { model: 'claude-3' },
+          'review-risk': { model: 'gpt-4.1-mini' },
+          'jd-judge-a': { model: 'o3-mini' },
           'other-agent': { model: 'mistral' },
-          'sdd-init-fallback': { model: 'gpt-3.5' } // Should ignore fallback
+          'sdd-init-fallback': { model: 'gpt-3.5' },
+          'review-risk-fallback': { model: 'gpt-4.1-nano' }
         }
       };
       
       const models = extractSddAgentModels(config);
       expect(models).toEqual({
         'sdd-init': 'gpt-4',
-        'sdd-apply': 'claude-3'
+        'sdd-apply': 'claude-3',
+        'review-risk': 'gpt-4.1-mini',
+        'jd-judge-a': 'o3-mini'
       });
     });
 
@@ -101,6 +106,8 @@ describe('profiles logic', () => {
         fallback: {
           'sdd-init': 'gpt-3.5',
           'sdd-apply': 'sonnet',
+          'review-risk': 'gpt-4.1-nano',
+          'jd-judge-a': 'o3-mini-low',
           'invalid': 'foo'
         }
       };
@@ -108,7 +115,9 @@ describe('profiles logic', () => {
       const fallback = extractSddFallbackModels(raw);
       expect(fallback).toEqual({
         'sdd-init': 'gpt-3.5',
-        'sdd-apply': 'sonnet'
+        'sdd-apply': 'sonnet',
+        'review-risk': 'gpt-4.1-nano',
+        'jd-judge-a': 'o3-mini-low'
       });
     });
 
@@ -510,6 +519,8 @@ describe('profiles logic', () => {
       const errors = validateProfileFallbackMapping(config, fallback);
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0]).toContain('sdd-orchestrator');
+      expect(errors[0]).toContain('review-*');
+      expect(errors[0]).toContain('jd-*');
     });
 
     it('should catch missing targets in config', () => {

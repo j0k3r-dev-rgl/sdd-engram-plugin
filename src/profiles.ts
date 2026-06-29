@@ -155,10 +155,10 @@ export function sanitizeProfileName(profileName: string): string {
 }
 
 /**
- * Extracts models specifically for managed SDD base agents from a configuration object
+ * Extracts models specifically for managed base agents from a configuration object
  *
  * @param config - The raw configuration object
- * @returns Mapping of SDD agent names to their model IDs
+ * @returns Mapping of managed agent names to their model IDs
  */
 export function extractSddAgentModels(config: any): ProfileModels {
   const agents = config?.agent || {};
@@ -176,7 +176,7 @@ export function extractSddAgentModels(config: any): ProfileModels {
 }
 
 /**
- * Extracts SDD fallback model mapping from a profile payload
+ * Extracts managed fallback model mapping from a profile payload
  */
 export function extractSddFallbackModels(raw: any): ProfileFallbackModels {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -1047,7 +1047,7 @@ export function detectActiveProfileFile(files: string[], api: any): string | und
 }
 
 /**
- * Returns fallback-eligible SDD base agents from config
+ * Returns fallback-eligible managed base agents from config
  */
 export function listFallbackEligibleSddAgents(config: any): string[] {
   const agents = config?.agent || {};
@@ -1063,7 +1063,7 @@ export function validateProfileFallbackMapping(config: any, fallback: ProfileFal
 
   for (const [baseAgentName, model] of Object.entries(fallback || {})) {
     if (!isFallbackEligibleSddAgent(baseAgentName)) {
-      errors.push(`Invalid fallback target '${baseAgentName}'. Must be a base sdd-* agent (excluding sdd-orchestrator).`);
+      errors.push(`Invalid fallback target '${baseAgentName}'. Must be a managed base agent (sdd-*, review-*, jd-*, excluding sdd-orchestrator).`);
       continue;
     }
 
@@ -1087,7 +1087,7 @@ function normalizeForFallbackCompare(agentConfig: any): any {
 }
 
 /**
- * Ensures and reconciles sdd-*-fallback agents against base sdd-* agents
+ * Ensures and reconciles *-fallback agents against managed base agents
  */
 export function syncSddFallbackAgents(currentConfig: any, fallbackModels: ProfileFallbackModels): any {
   const nextConfig = JSON.parse(JSON.stringify(currentConfig || {}));

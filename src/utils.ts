@@ -12,6 +12,7 @@ import { createLogger } from "./logger";
 
 const log = createLogger("utils");
 
+const MANAGED_AGENT_PREFIXES = ["sdd-", "review-", "jd-"];
 const MANAGED_SDD_AGENT_EXCEPTIONS = new Set(["gentle-orchestrator"]);
 const FALLBACK_INELIGIBLE_AGENTS = new Set(["sdd-orchestrator", "gentle-orchestrator"]);
 
@@ -54,13 +55,13 @@ export function truncateText(value: string, max = 120): string {
 }
 
 /**
- * Checks if an agent name follows the managed SDD naming convention
+ * Checks if an agent name follows the managed subagent naming convention
  * 
  * @param agentName - Name of the agent to check
- * @returns True if the agent name starts with "sdd-"
+ * @returns True if the agent name uses a managed prefix
  */
 export function isManagedSddAgent(agentName: string): boolean {
-  return agentName.startsWith("sdd-") || MANAGED_SDD_AGENT_EXCEPTIONS.has(agentName);
+  return MANAGED_AGENT_PREFIXES.some((prefix) => agentName.startsWith(prefix)) || MANAGED_SDD_AGENT_EXCEPTIONS.has(agentName);
 }
 
 /**
@@ -79,7 +80,7 @@ export function isPrimarySddAgent(agentName: string): boolean {
 
 /**
  * Checks if an agent is eligible for fallback generation
- * (all sdd-* except orchestrator and existing fallbacks)
+ * (all managed primary agents except orchestrators and existing fallbacks)
  */
 export function isFallbackEligibleSddAgent(agentName: string): boolean {
   return isPrimarySddAgent(agentName) && !FALLBACK_INELIGIBLE_AGENTS.has(agentName);

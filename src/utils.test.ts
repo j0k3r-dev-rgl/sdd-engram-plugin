@@ -78,18 +78,24 @@ describe('utils logic', () => {
   describe('agent naming utils', () => {
     it('isManagedSddAgent', () => {
       expect(isManagedSddAgent('sdd-test')).toBe(true);
+      expect(isManagedSddAgent('review-risk')).toBe(true);
+      expect(isManagedSddAgent('jd-judge-a')).toBe(true);
       expect(isManagedSddAgent('gentle-orchestrator')).toBe(true);
       expect(isManagedSddAgent('other-test')).toBe(false);
     });
 
     it('isSddFallbackAgent', () => {
       expect(isSddFallbackAgent('sdd-test-fallback')).toBe(true);
+      expect(isSddFallbackAgent('review-risk-fallback')).toBe(true);
+      expect(isSddFallbackAgent('jd-judge-a-fallback')).toBe(true);
       expect(isSddFallbackAgent('sdd-test')).toBe(false);
       expect(isSddFallbackAgent('other-fallback')).toBe(false);
     });
 
     it('isPrimarySddAgent', () => {
       expect(isPrimarySddAgent('sdd-test')).toBe(true);
+      expect(isPrimarySddAgent('review-risk')).toBe(true);
+      expect(isPrimarySddAgent('jd-judge-a')).toBe(true);
       expect(isPrimarySddAgent('gentle-orchestrator')).toBe(true);
       expect(isPrimarySddAgent('sdd-test-fallback')).toBe(false);
       expect(isPrimarySddAgent('other-test')).toBe(false);
@@ -97,8 +103,11 @@ describe('utils logic', () => {
 
     it('isFallbackEligibleSddAgent', () => {
       expect(isFallbackEligibleSddAgent('sdd-test')).toBe(true);
+      expect(isFallbackEligibleSddAgent('review-risk')).toBe(true);
+      expect(isFallbackEligibleSddAgent('jd-judge-a')).toBe(true);
       expect(isFallbackEligibleSddAgent('sdd-orchestrator')).toBe(false);
       expect(isFallbackEligibleSddAgent('gentle-orchestrator')).toBe(false);
+      expect(isFallbackEligibleSddAgent('review-risk-fallback')).toBe(false);
       expect(isFallbackEligibleSddAgent('sdd-test-fallback')).toBe(false);
       expect(isFallbackEligibleSddAgent('other-test')).toBe(false);
     });

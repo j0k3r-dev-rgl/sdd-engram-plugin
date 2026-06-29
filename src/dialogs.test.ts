@@ -92,6 +92,43 @@ describe('dialog pure builders', () => {
     expect(sections.sddAgents.map(([name]) => name)).not.toContain('gentle-orchestrator');
   });
 
+  it('includes review and jd subagents in detail rows and fallback rows', () => {
+    const apiConfig = {
+      default_agent: 'gentle-orchestrator',
+      agent: {
+        'sdd-init': { model: 'phase/model' },
+        'review-risk': { model: 'review/model' },
+        'jd-judge-a': { model: 'judge/model' },
+        'gentle-orchestrator': { model: 'new/model' },
+      },
+    };
+
+    const sections = buildProfileDetailAgentSections(apiConfig as any, {
+      models: {
+        'sdd-init': 'phase/model',
+        'review-risk': 'review/model',
+        'jd-judge-a': 'judge/model',
+        'gentle-orchestrator': 'new/model',
+      },
+      fallback: {
+        'review-risk': 'review/fallback',
+        'jd-judge-a': 'judge/fallback',
+      },
+    });
+
+    expect(sections.sddAgents.map(([name]) => name)).toEqual([
+      'gentle-orchestrator',
+      'jd-judge-a',
+      'review-risk',
+      'sdd-init',
+    ]);
+    expect(sections.fallbackAgents).toEqual([
+      ['jd-judge-a', 'judge/fallback'],
+      ['review-risk', 'review/fallback'],
+      ['sdd-init', undefined],
+    ]);
+  });
+
   it('builds fill-only and override bulk profile action labels mapped to target and mode', () => {
     const options = buildBulkProfileActionOptions();
 
