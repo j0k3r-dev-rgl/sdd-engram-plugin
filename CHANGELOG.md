@@ -1,3 +1,10 @@
+## [1.6.8](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.7...v1.6.8) (2026-06-29)
+
+
+### Bug Fixes
+
+* **profiles:** tolerate BOM in JSON reads ([81b86cc](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/81b86cc776188fed495982c358c1a078d2c747d0))
+
 ## [1.6.7](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.6...v1.6.7) (2026-06-29)
 
 
