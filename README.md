@@ -14,7 +14,7 @@ Manage [SDD (Spec-Driven Development)](https://github.com/Gentleman-Programming/
 - **Bulk Actions:** Use **Bulk actions...** to assign primary models, fallback models, or both across the whole profile.
 - **Profile Versions:** Use **Profile versions...** to preview and restore saved snapshots before risky changes.
 - **Rename & Delete:** Full lifecycle management for your profiles.
-- **Per-Agent Fallbacks:** Configure a fallback model per `sdd-*` base agent (except `sdd-orchestrator`). On activation, the plugin ensures `sdd-*-fallback` agents exist and stay in sync with their base agent config. Primary models are applied first, so you can define new agents and their fallbacks in a single profile activation.
+- **Per-Agent Fallbacks:** Configure a fallback model per managed base agent: `sdd-*` (except `sdd-orchestrator`), `review-*`, and `jd-*`. On activation, the plugin ensures matching `*-fallback` agents exist and stay in sync with their base agent config. Primary models are applied first, so you can define new agents and their fallbacks in a single profile activation.
 - **Active Profile Detection:** The plugin automatically detects and highlights which profile matches the current config.
 
 #### Profile Format
@@ -35,8 +35,8 @@ Profiles are stored as JSON files under `~/.config/opencode/profiles/`:
 }
 ```
 
-- `models`: primary model per base `sdd-*` agent.
-- `fallback`: optional fallback model override per base agent name. If omitted, the fallback agent inherits the base model.
+- `models`: primary model per managed base agent (`sdd-*`, `review-*`, `jd-*`, plus `gentle-orchestrator` when present in the runtime config).
+- `fallback`: optional fallback model override per managed base agent name. If omitted, the fallback agent inherits the base model.
 
 Profile versions are stored separately under `~/.config/opencode/profile-versions/`, or `$XDG_CONFIG_HOME/opencode/profile-versions/` when `XDG_CONFIG_HOME` is set. Version metadata is not written into the main profile JSON file, so profile files stay portable and focused on runtime model configuration.
 
@@ -270,7 +270,7 @@ This is what users will see after installing the plugin:
 
 ## Orchestrator Fallback Policy Script
 
-This repo includes a script to ensure the `sdd-orchestrator` prompt contains the fallback policy block required for `sdd-*-fallback` agents to work correctly when a primary sub-agent fails.
+This repo includes a script to ensure the `sdd-orchestrator` prompt contains the fallback policy block required for managed `*-fallback` agents to work correctly when a primary sub-agent fails.
 
 - **Script:** `scripts/ensure-orchestrator-fallback-policy.ts`
 - **Supports:** Inline prompt text in `opencode.json` and external `{file:...}` references.
