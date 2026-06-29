@@ -63,6 +63,10 @@ function safeString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function stripJsonBom(raw: string): string {
+  return raw.replace(/^\uFEFF/, "");
+}
+
 function formatIssuePath(pathValue: unknown): string | undefined {
   if (Array.isArray(pathValue)) {
     const parts = pathValue.map((part) => String(part).trim()).filter(Boolean);
@@ -238,7 +242,7 @@ function normalizePersistedProfileData(profile: ProfileData, policy?: Orchestrat
 export function readProfileModels(profilePath: string): ProfileModels {
   let raw: any;
   try {
-    raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+    raw = JSON.parse(stripJsonBom(fs.readFileSync(profilePath, "utf-8")));
   } catch (e) {
     if (hasErrorCode(e, "ENOENT")) {
       log.debug(`readProfileModels: file does not exist ${profilePath}`);
@@ -280,7 +284,7 @@ export function readProfileModels(profilePath: string): ProfileModels {
  */
 export function readProfileFallbackModels(profilePath: string): ProfileFallbackModels {
   try {
-    const raw = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+    const raw = JSON.parse(stripJsonBom(fs.readFileSync(profilePath, "utf-8")));
     return extractSddFallbackModels(raw);
   } catch (e) {
     if (hasErrorCode(e, "ENOENT")) {
@@ -297,7 +301,7 @@ export function readProfileFallbackModels(profilePath: string): ProfileFallbackM
  */
 export function readProfileData(profilePath: string): ProfileData {
   try {
-    const rawContent = fs.readFileSync(profilePath, "utf-8").toString();
+    const rawContent = stripJsonBom(fs.readFileSync(profilePath, "utf-8").toString());
     return readProfileDataFromRaw(rawContent);
   } catch (e) {
     if (hasErrorCode(e, "ENOENT")) {
@@ -312,7 +316,7 @@ export function readProfileData(profilePath: string): ProfileData {
 function readProfileDataFromRaw(rawContent: string): ProfileData {
   let raw: any;
   try {
-    raw = JSON.parse(rawContent);
+    raw = JSON.parse(stripJsonBom(rawContent));
   } catch (e) {
     log.warn("readProfileDataFromRaw: failed to parse raw profile JSON", e);
     return { models: {} };
@@ -1199,7 +1203,7 @@ export async function activateProfileFile(api: any, profilePath: string, profile
     let currentConfig: any;
     if (fs.existsSync(configPath)) {
       try {
-        currentConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        currentConfig = JSON.parse(stripJsonBom(fs.readFileSync(configPath, "utf-8")));
       } catch (e) {
         log.error(`activateProfileFile: failed to parse global config ${configPath}`, e);
         throw new Error("Global config JSON is invalid");
