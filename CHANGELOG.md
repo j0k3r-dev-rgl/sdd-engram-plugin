@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.8...v1.7.0) (2026-06-29)
+
+
+### Features
+
+* **shortcut:** add configurable plugin keybinding ([b23e6dd](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/commit/b23e6ddb83d16090c5642f8996c0776cbe15a4ee)), closes [#34](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/issues/34)
+
 ## [1.6.8](https://github.com/j0k3r-dev-rgl/sdd-engram-plugin/compare/v1.6.7...v1.6.8) (2026-06-29)
 
 

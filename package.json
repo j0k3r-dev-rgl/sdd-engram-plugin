@@ -1,6 +1,6 @@
 {
 	"name": "opencode-sdd-engram-manage",
-	"version": "1.6.8",
+	"version": "1.7.0",
 	"description": "Interactive SDD model selection and profile management for opencode",
 	"repository": {
 		"type": "git",
