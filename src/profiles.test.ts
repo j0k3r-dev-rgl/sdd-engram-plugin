@@ -2132,6 +2132,43 @@ describe('profiles logic', () => {
       });
     });
 
+    it('activates profiles when the profile JSON has a leading UTF-8 BOM', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
+      vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
+        if (String(filePath) === '/mock/profiles/team.json') {
+          return `\uFEFF${JSON.stringify({ models: { 'sdd-init': 'gpt-4' } })}`;
+        }
+
+        return JSON.stringify({
+          agent: { 'sdd-init': { model: 'old/model' } },
+        });
+      });
+
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      const api = {
+        ui: { toast: vi.fn() },
+        client: {
+          global: {
+            config: {
+              get: vi.fn(),
+              update,
+            },
+          },
+        },
+      } as any;
+
+      const result = await activateProfileFile(api, '/mock/profiles/team.json', 'team');
+
+      expect(result?.agent['sdd-init']?.model).toBe('gpt-4');
+      expect(update).toHaveBeenCalledWith({
+        config: expect.objectContaining({
+          agent: expect.objectContaining({
+            'sdd-init': expect.objectContaining({ model: 'gpt-4' }),
+          }),
+        }),
+      });
+    });
+
     it('shows sanitized config validation details when config update fails', async () => {
       vi.mocked(fs.existsSync).mockImplementation((filePath: any) => String(filePath) === '/mock/config/opencode.json');
       vi.mocked(fs.readFileSync).mockImplementation((filePath: any) => {
