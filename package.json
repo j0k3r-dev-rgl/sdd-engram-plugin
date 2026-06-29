@@ -62,7 +62,7 @@
 		"@opentui/core": ">=0.4.2 <1",
 		"@opentui/keymap": ">=0.4.2 <1",
 		"@opentui/solid": ">=0.4.2 <1",
-		"solid-js": "1.9.13"
+		"solid-js": "1.9.12"
 	},
 	"engines": {
 		"node": ">=24 <25",
